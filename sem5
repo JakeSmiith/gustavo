@@ -1,0 +1,383 @@
+rm(list = ls()) # clear all
+
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+
+
+
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+# Sets the working directory so that subsequent load() commands work without specifying full file paths.
+
+load('Returns.RData')
+load('Prices.RData')
+# Loads pre-saved datasets: one with asset returns, one with asset prices.
+
+# generating random numbers
+y_sn <- rnorm(1)
+# Draws one random number from the standard normal distribution (mean = 0, sd = 1).
+y_sn
+
+y_n <- rnorm(10, mean = 10, sd = 0.5)
+# Draws 10 normally distributed random numbers with mean 10 and standard deviation 0.5.
+y_n
+
+y_t <- rt(1, df = 5)
+# Draws one value from a Student-t distribution with 5 degrees of freedom.
+# t-distribution has heavier tails than normal.
+
+# if we seed, then we can replicate random numbers (useful for replicationg simulation exercises, e.g. Monte Carlo)
+set.seed(888)
+y_sn <- rnorm(5)
+y_sn
+# Generates 5 standard normal random numbers after setting the seed.
+# Reproducible due to set.seed().
+
+set.seed(888)
+y_sn <- rnorm(5)
+y_sn
+# Identical to the previous output since the same seed is used again.
+
+set.seed(666)
+y_sn <- rnorm(5)
+y_sn
+# New seed, hence a different set of normally distributed numbers.
+
+y_sn <- rnorm(1000)
+# Generates 1000 standard normal values.
+
+y_t <- rt(1000, df = 3)
+# Generates 1000 random values from a t-distribution with 3 degrees of freedom (heavier tails).
+
+dev.new() # new figure
+plot(y_t,
+     col = "red",
+     pch = 16,
+     main = "Random points from a Normal and Student-t"
+)
+# Scatterplot of the t-distributed values.
+# Red dots, solid circles (pch = 16).
+
+points(y_sn, col = "blue", pch = 16)
+# Adds the normally distributed points to the same plot in blue.
+
+legend("bottomright",
+       legend = c("Student-t", "Normal"),
+       pch = 16,
+       col = c("red", "blue")
+)
+# Adds legend to distinguish the distributions visually.
+
+sample(1:100, 1)
+# Randomly selects one number from 1 to 100 (no replacement by default).
+
+sample(1:100, 3)
+# Randomly selects 3 numbers from 1 to 100 (unique values).
+
+sample(1:100, 5)
+# Randomly selects 5 unique values from 1 to 100.
+
+grades <- sample(1:100, 60)
+# Simulates exam marks by randomly sampling 60 unique integers from 1 to 100.
+
+# the default is to sample without replacement
+# sample(1:100, 60, replace = TRUE) # with replacement
+# This line (commented) shows how to sample with replacement if needed.
+
+length(grades[grades >= 70])
+# Counts how many students scored 70 or above (distinction threshold).
+
+view(grades)
+# Opens a spreadsheet-style viewer to inspect the grades vector.
+
+# alternatively, we could use random numbers generated from a uniform distribution to sample with replacement:
+a <- runif(100, min = 0, max = 1)
+# Generates 100 numbers from the uniform distribution between 0 and 1.
+
+a <- runif(100)
+# Default: uniform distribution from 0 to 1.
+
+a <- runif(100, min = 0, max = 100)
+# Uniformly distributed marks from 0 to 100.
+
+view(a)
+# View the random values before rounding.
+
+grades <- round(a, 0)
+# Rounds each grade to the nearest whole number.
+
+view(grades)
+# Inspect the rounded grades.
+
+length(grades[grades >= 70])
+# Counts the number of grades 70 or above (after rounding).
+
+dev.new() # new figure
+hist(grades, col = "lightgray", breaks = 10)
+# Creates a histogram of grades using 10 bins.
+# Bar colour is light gray.
+
+dev.new() # new figure
+hist(grades, freq = FALSE, col = "lightgray", breaks = 10)
+# Histogram showing densities instead of frequencies (bars sum to 1).
+# Useful if overlaying with probability density functions (e.g., normal curve).
+
+
+dev.new() # new figure
+par(mfrow = c(2, 2))
+# Creates a 2x2 layout of plots in the same graphics window.
+
+norm1 <- rnorm(60)
+# Generate 60 random values from a standard normal distribution.
+
+norm2 <- rnorm(100)
+# Generate 100 random normal values.
+
+norm3 <- rnorm(100000)
+# Generate 100,000 random normal values.
+
+x <- seq(-3, 3, 0.1)
+# Sequence of values from -3 to 3 in increments of 0.1 — used for the true normal density overlay.
+
+hist(norm1,
+     freq = FALSE,
+     breaks = 20,
+     main = "Sample size 100",
+     col = "lightgrey",
+     ylim = c(0, 0.5)
+)
+# Histogram of the 60 values — y-axis is density, not frequency.
+lines(x, dnorm(x), lwd = 3, col = "red")
+# Adds the true standard normal density curve in red.
+
+hist(norm2,
+     freq = FALSE,
+     breaks = 20,
+     main = "Sample size 1000",
+     col = "lightgrey",
+     ylim = c(0, 0.5)
+)
+lines(x, dnorm(x), lwd = 3, col = "red")
+# Repeat for 1000 values — histogram becomes smoother and more closely matches true density.
+
+hist(norm3,
+     freq = FALSE,
+     breaks = 20,
+     main = "Sample size 100000",
+     col = "lightgrey",
+     ylim = c(0, 0.5)
+)
+lines(x, dnorm(x), lwd = 3, col = "red")
+# Repeat again — histogram is almost indistinguishable from theoretical curve.
+
+# How to write functions ....
+
+a = 10
+result = a^0.5 + sin(a)
+result
+# Computes the square root of 10 plus sin(10). Returns scalar result.
+
+# or we can write a function:
+
+MyFunction = function(a) {
+  result = a^0.5 + sin(a)
+  return(result)
+}
+# Defines a reusable function that takes a single input `a` and applies the same formula.
+
+MyFunction(a = 10)
+MyFunction(a = 3)
+# Calls the function with a = 10 and a = 3.
+
+# Alternatively, we can save this function as a separate file and save in a different folder
+source("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/Functions/MyFunction_v2.R")
+# Loads and executes a script file containing the function `MyFunction_v2`.
+
+MyFunction_v2(a = 10)
+# Calls the sourced version of the function.
+
+# or if we have many functions in the same folder: use the following function
+
+    # list.files() lists all files in the specified directory 
+    # pattern = "\\.R$" is a regex that matches filenames ending in .R
+    # full.names = TRUE returns full file paths
+    # sapply() applies the `source()` function to each file
+
+source_directory <- function(dir) {
+  files <- list.files(path = dir, pattern = "\\.R$", full.names = TRUE)
+  sapply(files, source)
+}
+# Defines a helper function that loads (sources) all `.R` files from a given folder.
+
+# we now source all functions in the .../Functions/ folder
+source_directory("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/Functions/")
+MyFunction_v3(a = 10)
+# Sources all functions and runs the third version of MyFunction with input a = 10.
+
+ReturnAnalysis(name = "LSE")
+ReturnAnalysis(name = "GE")
+# Calls a function `ReturnAnalysis()` (presumably defined in one of the sourced .R files), passing asset names as inputs.
+
+# source("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/Functions/bs.R") # links the function
+# This line is commented but shows where the Black-Scholes function `bs()` is stored.
+
+y <- Returns$MSFT
+# Extract Microsoft returns.
+
+P <- Prices[dim(Prices)[1], 2] # last price of MSFT
+P
+# Retrieves the most recent (last row) price for MSFT (assumed to be column 2).
+
+r <- 0.09
+# Annualised risk-free rate.
+
+K <- P * 1.5
+K
+# Defines the strike price as 150% of current spot price.
+
+sigma <- sqrt(255) * sd(y)
+# Estimates annualised volatility assuming 255 trading days/year.
+
+Maturity <- 1
+# Time to maturity in years.
+
+bs(K = K, P = P, r = r, sigma = sigma, T = Maturity)
+# Calls Black-Scholes function with given parameters. Returns call/put prices.
+
+# computing the prices for a sequence of strikes
+K = P * seq(0.3, 1.7, by = 0.01)
+# Vector of strike prices ranging from 30% to 170% of spot price.
+
+K
+put = rep(NA, length(K))
+call = rep(NA, length(K))
+# Initialise empty vectors to store put and call prices for each strike.
+
+for(i in 1:length(K)) {
+  res = bs(K = K[i], P = P, r = r, sigma = sigma, T = Maturity)
+  put[i] = res$Put
+  call[i] = res$Call
+}
+# Loop through all strikes; store corresponding Black-Scholes put and call prices.
+
+dev.new() # new figure
+matplot(K, cbind(put, call), type = 'l', lty = 1, las = 1)
+# Plots both put and call prices vs strike price.
+# Call is decreasing, put is increasing.
+# `matplot()` is used to plot multiple series at once (columns of matrix).
+
+
+
+# Simulate options prices
+seed = 888
+set.seed(seed = seed)
+# Set the seed for random number generation to make the simulation reproducible.
+
+S = 1e5     
+# Number of Monte Carlo simulations = 100,000
+
+K = P * 0.8   
+# Set the strike price to 80% of the current price (deep in-the-money option)
+
+r = 0.09
+# Annual risk-free interest rate
+
+sigmaAnnual = sqrt(255) * sd(y)
+# Annualised volatility estimated from standard deviation of daily returns (y), assuming 255 trading days
+
+Maturity = 1
+# Time to maturity in years
+
+bs_prices = bs(K = K, P = P, r = r, sigma = sigmaAnnual, T = Maturity)
+# Calculate theoretical Black-Scholes prices for the given parameters (returns a list with $Call and $Put)
+
+bs_prices
+# View the Black-Scholes call and put price
+
+# Steps:
+  # 1) Generate random numbers from a normal distribution
+      # ysim ~ N(μ - 0.5 * T * σ², T * σ²), where μ = r * T (reflects no-arbitrage pricing)
+  # 2) Simulate prices at maturity using geometric Brownian motion formula
+  # 3) Calculate payoffs for call and put: max(0, S_T - K) and max(0, K - S_T)
+  # 4) Take the mean of simulated payoffs and discount them back to present
+
+ysim = rnorm(S,
+             mean = r * Maturity - 0.5 * Maturity * (sigmaAnnual^2),
+             sd = sqrt(Maturity) * sigmaAnnual
+)
+# Generate S simulated log-returns using the risk-neutral drift and annualised volatility
+# Formula from geometric Brownian motion
+
+Psim = P * exp(ysim)
+# Compute the simulated terminal prices of the asset at maturity T
+
+# Alternatively, simulate directly from log-normal distribution:
+# If Z ~ N(0,1), then X = exp(μ + σZ) ~ LogNormal(μ, σ)
+# with E[X] = exp(μ + 0.5σ²)
+
+ysim = rlnorm(S,
+              meanlog = r * Maturity - 0.5 * Maturity * (sigmaAnnual^2),
+              sdlog = sqrt(Maturity) * sigmaAnnual
+)
+Psim = P * ysim
+# Simulated terminal prices using log-normal distribution (another way to generate same Psim)
+
+simPut = pmax(K - Psim, 0)
+# Compute put payoffs at maturity (if strike > simulated price)
+
+simCall = pmax(Psim - K, 0)
+# Compute call payoffs at maturity (if simulated price > strike)
+
+simCall = mean(simCall) * exp(-Maturity * r)
+# Discount the average call payoff back to present (risk-neutral pricing)
+
+simPut = mean(simPut) * exp(-Maturity * r)
+# Same for put option
+
+cat("put",
+    "call", "\n",
+    bs_prices$Put,
+    bs_prices$Call,
+    "\n",
+    simPut, simCall,
+    "\n"
+)
+# Print comparison between analytical Black-Scholes prices and simulated Monte Carlo prices
+
