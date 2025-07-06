@@ -1,0 +1,435 @@
+m(list = ls()) # clear all
+
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+#install.packages("rmgarch")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+library(rmgarch)
+
+
+
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+#setwd("C:/Users/tpd19wzu/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+
+
+
+
+load('Returns.RData')
+# Loads the dataset named 'Returns' from the specified .RData file into memory.
+
+load('Prices.RData')
+# Loads the dataset named 'Prices' from the specified .RData file into memory.
+
+date.ts <- ymd(Returns$date)
+# Converts the 'date' column in the Returns dataset to a Date format using the lubridate package.
+
+y1=Returns$JPM
+# Extracts the JPM column from Returns and assigns it to y1.
+
+y2=Returns$MCD
+# Extracts the MCD column from Returns and assigns it to y2.
+
+y=Returns[,c("JPM","MCD")]
+# Creates a two-column data frame `y` containing returns for JPM and MCD.
+
+dev.new() # new figure
+# Opens a new graphics device window for plotting.
+
+matplot(date.ts,
+        y,
+        type = "l",
+        lty=1,
+        col = 1:2,
+        main = "Returns JPM and MCD",
+        ylab = "USD"
+)
+# Plots the time series returns of JPM and MCD. Uses different colors (col = 1:2) and solid lines (lty=1).
+
+legend("topright", 
+       legend = c("JPM", "MCD"), 
+       col = 1:2, 
+       lty = 1)
+# Adds a legend at the top right of the plot to label the JPM and MCD lines.
+
+# we now start computing the risk measures:
+p=0.01           # significance level 
+# Sets the significance level for VaR and ES at 1%.
+
+value=1000       # portfolio value
+# Sets the notional portfolio value to $1000.
+
+# We start by implementing the historical simulation
+
+We=1000  # estimation window.
+# Sets the estimation window for VaR/ES to 1000 most recent observations.
+
+Asset="JPM"
+# Specifies that the asset we're analysing is JPM.
+
+window=tail(y$JPM,We)
+# Takes the last 1000 return observations for JPM as the estimation window.
+
+SortedWindow=sort(window)  #sorts the elements of window in ascending order by default.
+# Sorts the 1000 return values from worst to best (for percentile-based risk measures).
+
+dev.new() # new figure
+# Opens a new plot window.
+
+plot(SortedWindow)
+# Plots the sorted return values, useful for visualising the left tail where VaR/ES live.
+
+# VaR(p)
+VaR=SortedWindow[p*We]
+# Selects the return at the p-th quantile of the sorted return distribution (i.e., the 1st percentile).
+VaR_h = -VaR
+# Converts the return-based VaR to a loss value by negating.
+
+dev.new() # new figure
+# Opens another new plot window.
+
+plot(SortedWindow)
+# Replots the sorted returns to illustrate where the VaR lies.
+
+# segments(x0, y0, x1 = x0, y1 = y0, col = par("fg"), lty = par("lty"), lwd = par("lwd"), ...)
+segments(p*We,-100,p*We,VaR,col='pink',lwd=4) # lwd=4 Line width
+# Draws a vertical pink line from y=-100 to y=VaR at x=p*We to mark the quantile on the plot.
+
+segments(p*We,VaR,-100,VaR,col='pink',lwd=4)  # -100 is just a big number to go all the way to the y axis
+# Draws a horizontal pink line from x=-100 to x=p*We at y=VaR to create a T-shaped marker.
+
+points(p*We,VaR,col='red',pch=16) # adds a point on the coordinate x y
+# Marks the VaR point on the plot in red.
+
+VaR=-value*SortedWindow[p*We]
+# Converts return-based VaR to a dollar loss VaR for the portfolio of $1000.
+
+VaR
+# Prints the dollar VaR value.
+
+# Expected Shortfall(p)
+length(SortedWindow)
+# Returns the length of the sorted return vector (should be 1000).
+
+ES=-value*mean(SortedWindow[1:(p*We)])
+# Computes the Expected Shortfall (Conditional VaR): average loss among the worst p% of returns.
+
+ES
+# Prints the dollar ES value.
+
+VaR=round(VaR,1)
+# Rounds the VaR to one decimal place.
+
+ES=round(ES,1)
+# Rounds the ES to one decimal place.
+
+VaR
+# Displays rounded VaR.
+
+ES
+# Displays rounded ES.
+
+# printing the result: (use cat() that concatenates and prints objects)
+cat("The probability is ",100*p,"%",
+    " and the portfolio value is $",
+    value,". ", sep="") # sep = "": This means no additional characters will be inserted between the concatenated objects. 
+# Prints the formatted statement about the probability and portfolio value.
+
+cat("In this case, the VaR=$",VaR,
+    ", while the ES is $",
+    ES,"\n",sep="")
+# Prints the formatted statement showing calculated VaR and ES values.
+
+string=paste0("The probability is ",
+              100*p,"%",
+              " and the portfolio value is $",value,". ")
+# Constructs the first part of the result string using `paste0`.
+
+string=paste0(string,
+              "In this case, the VaR=$",
+              VaR,", while the ES is $",ES)
+# Adds the VaR and ES parts to the output string.
+
+cat(string)
+# Final formatted print of the risk summary.
+
+source("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/Functions/RunVaR.R")
+# Loads and executes the external R script 'RunVaR.R', which contains a function to compute VaR and ES.
+
+res<- RunVaR(Returns=Returns,Asset=Asset,p=p,We=We)
+# Calls the RunVaR() function using the previously defined inputs (Returns dataset, selected Asset, probability level p, and estimation window We). Stores results in res.
+
+res$VaR
+# Extracts and prints the Value-at-Risk from the result.
+
+res$ES
+# Extracts and prints the Expected Shortfall from the result.
+
+
+# Multivariate VaR and ES
+# setting the portfolio weights
+weight <- matrix(nrow = 2, ncol = 1) # empty (NA) matrix
+# Creates a 2x1 matrix to hold weights for a two-asset portfolio.
+
+weight[1,1]<-0.1
+# Assigns a 10% weight to the first asset (JPM).
+
+weight[2,1]<-0.9
+# Assigns a 90% weight to the second asset (MCD).
+
+weight
+# Displays the resulting weights matrix.
+
+dim(weight)
+# Prints the dimensions of the weights matrix (2 rows, 1 column).
+
+Assets=c("JPM","MCD")
+# Specifies the names of the assets to include in the multivariate portfolio.
+
+Y<-as.matrix(Returns[,Assets])
+# Converts the selected asset columns in Returns to a numeric matrix Y.
+
+dim(Y)
+# Prints the dimensions of the returns matrix.
+
+yPortfolio=Y %*% weight
+# Computes the portfolio returns by taking the matrix product of Y and the weights vector.
+
+dim(yPortfolio)
+# Displays the dimensions of the resulting portfolio return vector (T x 1).
+
+dev.new() # new figure
+# Opens a new graphics device for plotting.
+
+matplot(date.ts,
+        yPortfolio,
+        type = "l",
+        lty=1,
+        col = 1:2,
+        main = "Returns portfolio (JPM and MCD)",
+        ylab = "USD"
+)
+# Plots the time series of the portfolio returns.
+
+win=c(100,300,500,1000,2000)
+# Defines various estimation window sizes for computing VaR.
+
+VaR=rep(NA,length(win)) # empty (NA) row vector, where rep(x,n) replicates the value x n times
+# Creates a vector of NA values to hold the calculated VaRs for each window size.
+
+# or 
+VaR= matrix(nrow = 1, ncol = length(win)) # empty (NA) matrix
+# Alternatively defines VaR as a 1x5 matrix for clarity (same effect).
+
+for(i in 1:length(win)){
+  window=tail(yPortfolio,win[i])
+  # For each window size, selects the last `win[i]` observations of portfolio returns.
+
+  VaR[i]=-value*sort(window)[p*win[i]]
+  # Computes historical simulation VaR: takes the p-th quantile of sorted returns and scales it by portfolio value.
+}
+
+dev.new() # new figure
+# Opens a new plotting window.
+
+barplot(VaR,names.arg=win)
+# Plots the VaR values as a bar chart, labelling bars with the corresponding window sizes.
+
+
+# Parametric Univariate Risk Measures
+
+y=Returns$JPM
+# Extracts the return series for JPM for a parametric (non-historical) approach.
+
+
+### EWMA
+lambda=0.94
+# Sets the decay factor (lambda) for EWMA volatility forecasting.
+
+Burn=30 # number of observations to discard at the start (alleviate starting values)
+# Burn-in parameter — although not used explicitly below, it suggests discarding initial values to reduce bias.
+
+s2=var(y)
+# Initializes the conditional variance s2 using the sample variance.
+
+N=length(y)
+# Total number of return observations.
+
+for(i in 2:N){
+  s2=lambda*s2 + (1-lambda)*y[i-1]^2
+  # Recursive EWMA update: applies the formula to iteratively update s2 using lagged squared returns.
+  # Only the final value of s2 is retained (most recent variance).
+}
+
+VaR=-value*qnorm(p,sd=sqrt(s2))
+# Calculates parametric VaR assuming normality:
+# Multiplies the quantile of the standard normal distribution (at p) by the EWMA volatility and portfolio size.
+
+VaR
+# Displays the VaR value.
+
+# or .... 
+VaR=-value*sqrt(s2)*qnorm(p,sd=1)
+# Equivalent formulation: pulls standard deviation out and multiplies it after.
+
+VaR
+# Displays the VaR value again.
+
+# GARCH VaR
+y=tail(Returns$JPM,We)
+# Extracts the most recent 'We' observations from the JPM return series for use in GARCH modelling.
+
+spec=ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(
+    armaOrder=c(0,0),
+    include.mean=FALSE)
+)
+# Specifies a standard GARCH(1,1) model with no ARMA terms in the mean equation and no constant mean.
+
+fit=ugarchfit(spec=spec,data=y,solver = "hybrid")
+# Fits the GARCH(1,1) model to the return series using the 'hybrid' solver method.
+
+fit@fit$matcoef
+# Displays the estimated model coefficients in a matrix format.
+
+coef(fit)
+# Extracts the estimated coefficients as a named vector.
+
+length(coef(fit))
+# Returns the number of estimated parameters (should be 3: omega, alpha, beta).
+
+tail(y,1)[1] # last observation
+# Extracts the last return value from the series.
+
+tail(fit@fit$var,1)
+# Extracts the last estimated conditional variance from the fitted model.
+
+omega <- as.numeric(coef(fit)[1])
+alpha <- as.numeric(coef(fit)[2])
+beta <- as.numeric(coef(fit)[3])
+# Assigns the estimated GARCH parameters (omega, alpha, beta) to numeric scalars.
+
+#getting \sigma^{2}_{T+1}
+s2=omega +
+  alpha * tail(y,1)^2 +
+  beta *tail(fit@fit$var,1 )
+# Computes the one-step-ahead forecast of conditional variance (σ²_{T+1}) using the GARCH(1,1) recursion formula.
+
+VaR_GARCH11=-value*sqrt(s2)*qnorm(p,sd=1) # or VaR_GARCH11=-value*qnorm(p,sqrt(s2))
+# Computes the parametric Value-at-Risk using the normal quantile and predicted volatility (σ_{T+1}).
+
+VaR_GARCH11
+# Prints the calculated VaR.
+
+# ES CDF
+ESt <- value * sqrt(s2) * ((dnorm(qnorm(p,sd=1)))/p) # Lecture 5 - page 50
+# Computes the Expected Shortfall using the analytical expression assuming normality.
+
+ESt
+# Prints the calculated ES.
+
+# time series of VaR
+
+sigmas_GARCH11<- fit@fit$sigma
+# Extracts the full time series of conditional standard deviations from the fitted model.
+
+VaR_GARCH_ts <- - value * qnorm(p,sd=1) * sigmas_GARCH11
+# Computes the time series of GARCH-based VaR using conditional sigmas and the normal quantile.
+
+
+# VaR and ES with Student's t returns --------------------->>
+
+GARCH_1_1_t <- ugarchspec(variance.model = list(model = 'sGARCH', garchOrder = c(1,1)), distribution.model = 'std',
+                          mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))
+# Specifies a GARCH(1,1) model with Student's t-distributed innovations.
+# No ARMA terms and no mean included in the conditional mean equation.
+
+GARCH_1_1_t_fit <- ugarchfit(spec = GARCH_1_1_t, data = y, solver = 'hybrid')
+# Fits the GARCH(1,1) model with t-distribution to return series 'y' using hybrid optimisation.
+
+df <- GARCH_1_1_t_fit@fit$coef["shape"]
+# Extracts the estimated degrees of freedom (df) for the Student's t distribution.
+
+df
+# Displays the estimated degrees of freedom.
+
+omega <- as.numeric(coef(fit)[1])
+alpha <- as.numeric(coef(fit)[2])
+beta <- as.numeric(coef(fit)[3])
+# Assigns estimated GARCH parameters (from earlier 'fit' object) to omega, alpha, beta scalars.
+# NOTE: This may be a potential inconsistency — these values are from a different fit object (`fit`, not `GARCH_1_1_t_fit`).
+
+GARCH_1_1_t_fit@fit$matcoef
+# Displays the matrix of all parameter estimates and their statistical significance for the Student's t GARCH fit.
+
+#getting \sigma^{2}_{T+1}
+s2=omega +
+  alpha * tail(y,1)^2 +
+  beta *tail(fit@fit$var,1 )
+# Computes the one-step-ahead forecast of variance using the GARCH recursion formula and earlier estimates.
+
+VaR_TGARCHts=-value * sqrt(s2) * qt(p = p, df = df) * sqrt((df - 2) / df) # see set of slides 5, pg. 58
+# Calculates Value-at-Risk using the t-distribution quantile, scaling by volatility and df adjustment (to account for excess kurtosis).
+
+VaR_TGARCHts
+# Displays the single-period VaR estimate under t-GARCH.
+
+sigmas_TGARCH <- GARCH_1_1_t_fit@fit$sigma
+# Extracts the full time series of conditional standard deviations from the t-GARCH fit.
+
+VaR_TGARCH_ts <- - value * qt(p = p, df = df) * sigmas_TGARCH * sqrt((df - 2) / df) # see set of slides 5, pg. 58
+# Computes the time series of t-GARCH VaR, scaled for df correction.
+
+dev.new() # new figure
+matplot(tail(date.ts,We),
+        cbind(VaR_GARCH_ts,VaR_TGARCH_ts),
+        type = "l",
+        lty=1,
+        col = 1:2,
+        main = "Returns JPM and MCD",
+        ylab = "USD"
+)
+# Plots both GARCH-normal and GARCH-t VaR series on the same graph for visual comparison.
+
+legend("topright", 
+       legend = c("GARCH", "TGARCH"), 
+       col = 1:2, 
+       lty = 1)
+# Adds a legend to identify the two series in the plot.
+
