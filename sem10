@@ -1,0 +1,375 @@
+rm(list = ls()) # clear all
+
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+#install.packages("rmgarch")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+library(rmgarch)
+
+
+
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+#setwd("C:/Users/tpd19wzu/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+
+
+
+
+load('Returns.RData')
+load('Prices.RData')
+# Load historical return and price data into memory from saved .RData files.
+
+date.ts <- ymd(Returns$date)
+# Convert the date column in the `Returns` dataset to proper Date format using the `lubridate` package.
+
+p=0.01
+lambda=0.94
+value=1
+T=5000  # number of return observations to consider in total
+WE=1000 # estimation window size for calculating VaR
+WT=5000-WE # testing window size (total - estimation window)
+Burn=30
+# Set parameters for the VaR calculation: confidence level, decay factor (unused here), scaling value, total sample size, estimation size, and number of burn-in observations (not used in this block).
+
+Asset="JPM"
+y_full=Returns[[Asset]]
+# Select the returns for the "JPM" asset from the Returns dataset.
+
+y=tail(y_full,T)
+# Restrict the data to the most recent 5000 return observations.
+
+dev.new() # new figure
+d.ts<- tail(date.ts,T)
+plot(d.ts,y,type='l')
+# Plot the selected time series (last 5000 observations of JPM returns).
+
+VaR <- data.frame(date = d.ts, y = y)
+# Create a new dataframe to store dates and corresponding return values.
+
+view(VaR)
+VaR$HS=NA # create a new empty column called `HS` to store Historical Simulation VaR values.
+view(VaR)
+# View the initial structure of the `VaR` dataframe.
+
+# We now implement the Historical Simulation (HS)
+# to make sure we get the correct dates, look at the first iteration of the loop:
+t<-WE+1 # obs we want to get the VaR (VaR_{T+1})
+t
+# Start with the first observation where we can calculate VaR (i.e., the 1001st day).
+
+t1=t-WE # start sample: 
+t1
+# Start of the rolling window (observation 1).
+
+t2=t-1 # end of sample: 
+t2
+# End of the rolling window (observation 1000).
+
+for(t in (WE+1):T) {
+  t1=t-WE
+  t2=t-1
+  window=VaR$y[t1:t2]
+  # For each time point `t`, extract the rolling estimation window of past 1000 return values.
+
+  # to debug
+  # cat(t,t1,t2,length(w),'\n')
+  
+  VaR$HS[t]=-sort(window)[WE*p]*value
+  # Sort the rolling window, find the p-th percentile (e.g., 1% quantile), negate it (since we care about losses), and store it as VaR.
+}
+
+dev.new() # new figure
+plot(d.ts,VaR$y,type='l')
+lines(d.ts,-VaR$HS,type='s',col="red",lwd=2)
+# Plot actual returns over time and overlay the negative of estimated VaR values in red as a step function.
+
+# we can calculate the vector of violations and the violation ratio
+V=-VaR$HS-VaR$y
+# Compute the difference between negative VaR and actual return. If positive, a violation occurred.
+
+view(VaR)
+V=V[(WE+1):T] # selecting only those obs we can both returns and VaR measures: 1001:T
+length(V) # WT x 1
+# Remove the first WE observations since VaR wasn’t computed for those.
+
+V[V<0]=0  # checks each element of the vector V and if an element is less than 0, it is replaced with 0.
+V[V>0]=1  # checks each element of the vector V and if an element is greater than 0, it is replaced with 1.
+# Convert raw difference values into binary indicators: 1 for violation, 0 for no violation.
+
+view(V)
+sum(V)
+# Sum of violations: total number of times the actual return exceeded the VaR threshold.
+
+or 
+V <- sum(VaR$y < - VaR$HS, na.rm = TRUE)
+sum(V)
+# Alternative way to compute total violations using logical comparison and removing NAs.
+
+
+VR=sum(V)/(WT*p) # Calculate violation ratio: ratio of observed VaR breaches to expected breaches under model
+VR
+
+# If the violation ratio is greater than one, the VaR model underforecasts risk
+# If smaller than one, the model overforecasts risk
+
+# VR=1 is ideal; deviations from 1 signal model miscalibration
+# Rule of thumb interpretation guide:
+  # VR ∈ [0.8, 1.2]: good model
+  # VR ∈ [0.5, 0.8] or [1.2, 1.5]: acceptable
+  # VR ∈ [0.3, 0.5] or [1.5, 2]: bad
+  # VR < 0.3 or > 2: useless model
+
+VR
+cat('T',T,'WT',WT,'Violatios',sum(V),'VR',VR)
+# Print summary: total obs (T), test window (WT), number of violations, and final VR
+
+
+# ------------ EWMA ------------------
+VaR$EWMA=NA
+VaR$EWMA[1]=var(y)
+# Initialise EWMA variance series; first value is unconditional sample variance
+
+for(t in 2:T){
+  VaR$EWMA[t]=
+    lambda*VaR$EWMA[t-1]+
+    (1-lambda) *VaR$y[t-1]^2
+}
+# Apply EWMA update recursively:
+# EWMA_t = λ * EWMA_{t-1} + (1 - λ) * y_{t-1}^2
+
+VaR$EWMA=- sqrt(VaR$EWMA) * qnorm(p) * value
+# Convert EWMA variance to VaR by applying standard normal quantile (scaled by value)
+
+VaR$EWMA[1:Burn]=NA
+# Discard initial estimates to avoid burn-in bias
+
+dev.new() # new plot window
+plot(d.ts,VaR$y,type='l') # plot returns
+lines(d.ts,-VaR$HS,type='s',col="red",lwd=2)   # overlay HS VaR
+lines(d.ts,-VaR$EWMA,type='s',col="blue",lwd=2) # overlay EWMA VaR
+view(VaR)
+# Visualise returns and both VaR estimates
+
+
+V=-VaR$EWMA-VaR$y
+# Compute difference between negative VaR forecast and realised returns
+
+V=V[(Burn+1):T] # remove burn-in period
+V[V<0]=0
+V[V>0]=1
+# Convert into binary violations: 1 if breach occurred, else 0
+
+VR=sum(V)/(length(V)*p)
+# Compute EWMA violation ratio
+
+VR
+cat('T',T,'WT',WT,'Violatios',sum(V),'VR',VR)
+# Output diagnostic results for EWMA model
+
+
+# ---------- GARCH -----------------
+VaR$GARCH=NA
+# Initialise GARCH-based VaR column
+
+spec=ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+                mean.model = list(
+                  armaOrder=c(0,0),
+                  include.mean=FALSE)
+                )
+# Specify a standard GARCH(1,1) model without ARMA terms or mean
+
+for(t in (WE+1):T) {
+  print(t)
+  t1=t-WE
+  t2=t-1
+  window=VaR$y[t1:t2]
+  # Define estimation window of size WE ending at t-1
+
+  fit=ugarchfit(spec=spec,data=window,solver = "hybrid")
+  # Fit GARCH(1,1) model on rolling window
+
+  # Forecast one-step-ahead conditional variance using GARCH recursion
+  s2=coef(fit)[1] +
+    coef(fit)[2] * tail(window,1)^2 +
+    coef(fit)[3] *tail(fit@fit$var,1 )
+
+  VaR$GARCH[t]=-value*qnorm(p,sd=sqrt(s2))
+  # Compute GARCH-based VaR at time t using conditional σ² forecast
+}
+
+
+dev.new() # new figure
+plot(d.ts,VaR$y,type='l') # plot returns
+lines(d.ts,-VaR$HS,type='s',col="red",lwd=2)
+lines(d.ts,-VaR$EWMA,type='s',col="blue",lwd=2)
+lines(d.ts,-VaR$GARCH,type='s',col="green",lwd=2)
+# Plot all VaR models together for visual comparison
+
+
+V=-VaR$GARCH- VaR$y
+# Compute GARCH violations vector
+
+V=V[(WE+1):T] # restrict to dates with GARCH VaR forecasts
+length(V) # should be WT observations
+
+V[V<0]=0
+V[V>0]=1
+view(V)
+# Transform into binary format and inspect
+
+VR=sum(V)/(WT*p) # compute violation ratio
+VR
+
+
+V=VaR[(WE+1):T,]
+# Restrict dataframe to rows with all VaR types computed
+
+for(i in c("HS","EWMA","GARCH")){
+  V[,i]=-V[,i]-V[,"y"]
+  V[V[,i]<0,i]=0
+  V[V[,i]>0,i]=1
+}
+# Convert each model’s residuals to binary violation indicators (1 if breached, 0 otherwise)
+
+V=V[,c("HS","EWMA","GARCH")]
+view(V)
+dev.new() # new figure
+matplot(V[,c("HS","EWMA","GARCH")])
+# Visualise binary violations across time for each method
+
+colSums(V)
+# Count total violations per model
+
+colSums(V)/(WT*p)
+# Compute violation ratios per model side-by-side
+
+
+# Coverage tests ----------------------------------------------
+
+# Bernoulli Test: we apply this to test if the violations of VaR follow a Bernoulli(p) process
+# Null hypothesis: H0 : η ~ B(p), meaning the violations occur independently with correct probability p
+
+ra <- VaR[(WE + 1):T,2]
+# Extract realised returns from the VaR dataframe over the test window
+
+view(ra)
+# View extracted return series
+
+VaRa <- VaR[(WE + 1):T,"HS"]
+# Extract the Historical Simulation (HS) VaR estimates over the test window
+
+v <- ra < - VaRa
+# Vector of violations: TRUE if return falls below negative VaR estimate, FALSE otherwise
+
+view(v)
+# View the binary vector of violations
+
+v1 <- sum(v)
+# Count number of violations (TRUE values = 1)
+
+v0 <- length(eta) - v1
+# Count number of non-violations (FALSE values = 0); NOTE: 'eta' is undefined at this point, this line will error unless 'eta' was already defined earlier
+
+picap <- v1 / (v1 + v0)
+# Compute the empirical violation rate (observed probability of a breach)
+
+a <- (1 - p)^v0 * p^v1
+# Likelihood of restricted model under H0: Bernoulli(p)
+
+b <- (1 - picap)^v0 * picap^v1
+# Likelihood of unrestricted model using empirical violation rate
+
+LR <- 2 * (log(b / a))
+# Likelihood Ratio test statistic for Bernoulli coverage test
+
+LR
+# Display LR statistic
+
+if (LR > qchisq(p = 1 - p, df = 1)) {
+  print('null hypothesis H0 is rejected')
+} else {
+  print('We cannot reject the null')
+}
+# Compare LR to 1 - p quantile of chi-squared distribution with 1 df
+# If LR > threshold, reject null → the VaR model fails to produce correct number of breaches
+
+
+# Now repeat the Bernoulli test for all three VaR models: HS, EWMA, GARCH
+
+for(i in c("HS","EWMA","GARCH")){
+  ra <- VaR[(WE + 1):T,2]
+  # Extract realised returns
+
+  VaRa <- VaR[(WE + 1):T,i]
+  # Extract VaR estimates from model i
+
+  eta <- ra < - VaRa
+  # Binary vector of violations
+
+  v1 <- sum(eta)
+  # Number of violations
+
+  v0 <- length(eta) - v1
+  # Number of non-violations
+
+  picap <- v1 / (v1 + v0)
+  # Empirical breach rate
+
+  a <- (1 - p)^v0 * p^v1
+  # Restricted model likelihood under H0
+
+  b <- (1 - picap)^v0 * picap^v1
+  # Unrestricted model likelihood
+
+  LR <- 2 * (log(b / a))
+  # Likelihood Ratio statistic
+
+  LR
+  # Print LR value
+
+  if (LR > qchisq(p = 1 - p, df = 1)) {
+    print(i)
+    print('null hypothesis H0 is rejected')
+  } else {
+    print(i)
+    print('We cannot reject the null')
+  }
+  # Perform decision rule per model:
+  # Reject H0 if LR > χ² threshold ⇒ model under- or overestimates risk
+}
