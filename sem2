@@ -1,10 +1,10 @@
 # Q1) Loading Packages and Setup
-# a) Set the working library paths so both a user-specific and a system-wide path are recognised.
+
+# a) Set library paths: include both user-specific and system-wide locations
 .libPaths(c(.libPaths(), "C:/Users/tpd19wzu/Documents/R/MyLibrary"))
 .libPaths(c(.libPaths(), "C:/Program Files/R/R-4.1.3/library"))
 
-
-# b)Create a single command that installs all required packages only if not already installed.
+# b) Define and install all required packages if not already installed
 packages <- c("quantmod", "tidyverse", "PerformanceAnalytics", "timeSeries", "tseries",
               "roll", "car", "MASS", "extraDistr", "rugarch", "QRM", "dplyr",
               "reshape2", "lubridate")
@@ -14,53 +14,55 @@ install_if_missing <- function(pkg) {
     install.packages(pkg, dependencies = TRUE)
   }
 }
-invisible(lapply(packages, install_if_missing))
+invisible(lapply(packages, install_if_missing))  # apply install function to each package
 
-# c) Use a loop to load all libraries from a character vector.
+# c) Load all packages using a loop
 lapply(packages, library, character.only = TRUE)
 
 # Q2) Data Import and Initial Exploration
-# a) Import the 'crsp_seminar1.csv' file and inspect the first few and last few rows.
-data <- read.csv('crsp_seminar1.csv') 
-view(data)            
-head(data)
-tail(data)
 
-# b) What type of object is returned by read.csv()? Confirm using a function
-class(data) # returns 'data.frame'
+# a) Import data and preview it
+data <- read.csv('crsp_seminar1.csv')  # read dataset into a data frame
+view(data)                             # open the data viewer
+head(data)                             # show first 6 rows
+tail(data)                             # show last 6 rows
 
-# c)  Create new columns for 'Adjusted_Prices' and 'Unadjusted_Prices' using the CFACPR scaling factor.
-data$Unadjusted_Prices <- data$PRC
-data$Adjusted_Prices <- data$PRC / data$CFACPR
+# b) Confirm object type
+class(data)                            # should return "data.frame"
 
-# 3) Firm-Specific Data Frames and Merging
-# a) Subset the 'Adjusted_Prices' column for specific PERMNO codes and rename each column appropriately.
+# c) Create adjusted and unadjusted price columns
+data$Unadjusted_Prices <- data$PRC                         # copy raw prices
+data$Adjusted_Prices   <- data$PRC / data$CFACPR           # adjust for splits/dividends
+
+# Q3) Firm-Specific Data Frames and Merging
+
+# a) Create separate data frames for each firm's adjusted prices and rename columns
 MSFT <- data[data$PERMNO == 10107, c("date", "Adjusted_Prices")]
 names(MSFT)[2] <- "MSFT"
 
-XOM <- data[data$PERMNO==11850, c("date", "Adjusted_Prices")]
+XOM <- data[data$PERMNO == 11850, c("date", "Adjusted_Prices")]
 names(XOM)[2] <- "XOM"
 
-GE <- data[data$PERMNO==12060, c("date", "Adjusted_Prices")]
+GE <- data[data$PERMNO == 12060, c("date", "Adjusted_Prices")]
 names(GE)[2] <- "GE"
 
-JPM <- data[data$PERMNO==47896, c("date", "Adjusted_Prices")]
+JPM <- data[data$PERMNO == 47896, c("date", "Adjusted_Prices")]
 names(JPM)[2] <- "JPM"
 
-MCD <- data[data$PERMNO==43449, c("date", "Adjusted_Prices")]
+MCD <- data[data$PERMNO == 43449, c("date", "Adjusted_Prices")]
 names(MCD)[2] <- "MCD"
 
-C <- data[data$PERMNO==70519, c("date", "Adjusted_Prices")]
+C <- data[data$PERMNO == 70519, c("date", "Adjusted_Prices")]
 names(C)[2] <- "C"
 
-# b) Merge the individual stock data frames into a single wide-format data frame.
+# b) Merge into one wide-format data frame
 PRC <- merge(MSFT, XOM)
 PRC <- merge(PRC, GE)
 PRC <- merge(PRC, JPM)
 PRC <- merge(PRC, MCD)
 PRC <- merge(PRC, C)
 
-# c) Rewrite this using a loop that dynamically builds the combined price frame.
+# c) Dynamic version of above using a loop
 stocks <- list(
   MSFT = 10107,
   XOM = 11850,
@@ -71,71 +73,77 @@ stocks <- list(
 )
 
 for (s in 1:length(stocks)) {
-  stock_data <- data[data$PERMNO == stocks[s], c("date", "Adjusted_Prices")]
-  names(stock_data)[2] <- names(stocks[s]) 
-  if (s==1) {
-    PRC_loop <-stock_data
+  stock_data <- data[data$PERMNO == stocks[s], c("date", "Adjusted_Prices")]  # extract by PERMNO
+  names(stock_data)[2] <- names(stocks[s])                                    # rename 2nd col to ticker
+  if (s == 1) {
+    PRC_loop <- stock_data                                                    # first stock: initialise
   } else {
-    PRC_loop<-merge(PRC_loop, stock_data)
+    PRC_loop <- merge(PRC_loop, stock_data)                                   # merge next one
   }
 }
 
-# Q4) Alternative Reshaping with reshape2::dcast
-# a) Use `dcast()` to reshape the TICKER variable to wide format using PERMNOs.
-Tickers = dcast(data, date ~ PERMNO, value.var = "TICKER")
-Tickers = tail(Tickers, 1)
-Tickers
 
-# b) Use `dcast()` to reshape the Adjusted Prices and assign appropriate column names.
-Prices = dcast(data, date ~ PERMNO, value.var = "Adjusted_Prices")
-names(Prices) <- Tickers
-names(Prices)[1] = "date"
+# Q4) Alternative Reshaping with reshape2::dcast
+
+# a) Create a wide-format table where each column represents a PERMNO and the values are the tickers
+Tickers = dcast(data, date ~ PERMNO, value.var = "TICKER")  # Reshape TICKER by PERMNO
+Tickers = tail(Tickers, 1)                                  # Keep only the latest row (most complete mapping)
+Tickers                                                     # View the resulting single-row Ticker reference
+
+# b) Create wide-format data frame of Adjusted Prices, rename columns using the Ticker names
+Prices = dcast(data, date ~ PERMNO, value.var = "Adjusted_Prices")  # Reshape Adjusted_Prices by PERMNO
+names(Prices) <- Tickers                                            # Replace PERMNO headers with tickers
+names(Prices)[1] = "date"                                           # Rename first column to 'date'
 head(Prices)
 
-#c) Repeat for unadjusted prices and simple returns. Check dimensions of resulting data frames.
-UnAdjustedPrices = dcast(data, date ~ PERMNO, value.var = "PRC")
-names(UnAdjustedPrices) <- Tickers
-names(UnAdjustedPrices)[1] = "date"
+# c) Repeat the same reshaping for Unadjusted Prices and Simple Returns
+UnAdjustedPrices = dcast(data, date ~ PERMNO, value.var = "PRC")  # Unadjusted prices by PERMNO
+names(UnAdjustedPrices) <- Tickers                                # Set ticker names as column names
+names(UnAdjustedPrices)[1] = "date"                               # Rename date column
 head(UnAdjustedPrices)
-dim(UnAdjustedPrices)
+dim(UnAdjustedPrices)                                             # View dimensions of the data frame
 
-# Q5) Creating and transforming returns
-# a) Convert simple returns to log returns using the log(1 + R_t) formula.
-simpleReturns = dcast(data, date ~ PERMNO, value.var = "RET")
-names(simpleReturns) <- Tickers
-names(simpleReturns)[1] = "date"
-Returns = log(1 + simpleReturns[,2:dim(simpleReturns)[2]])
-Returns$date = simpleReturns$date
+# Q5) Creating and Transforming Returns
+
+# a) Reshape simple returns into wide format and then compute log returns
+simpleReturns = dcast(data, date ~ PERMNO, value.var = "RET")     # Reshape RET into wide format
+names(simpleReturns) <- Tickers                                   # Assign ticker names to columns
+names(simpleReturns)[1] = "date"                                  # Rename date column
+
+# Convert simple returns to log returns using the formula log(1 + R_t)
+Returns = log(1 + simpleReturns[, 2:dim(simpleReturns)[2]])       # Exclude date column for log transform
+Returns$date = simpleReturns$date                                 # Restore the date column to new data frame
 head(Returns)
 
-# b) Bring the 'date' column to the first position using column reordering.
-Returns = Returns[,c(dim(Returns)[2],1:(dim(Returns)[2]-1))]
+# b) Reorder columns to move 'date' to the first column
+Returns = Returns[, c(dim(Returns)[2], 1:(dim(Returns)[2] - 1))]   # Move date column to position 1
 head(Returns)
 
-# c) Convert integer-formatted dates to proper date format using `ymd()`.
+# c) Convert date format to YYYY-MM-DD using lubridate::ymd()
 ReturnsDate <- Returns
-ReturnsDate$date <- ymd(ReturnsDate$date)
+ReturnsDate$date <- ymd(ReturnsDate$date)                         # Convert integer to date object
 head(ReturnsDate)
-class(ReturnsDate$date)
+class(ReturnsDate$date)                                           # Should now be of class "Date"
 
 # Q6) Saving and Exporting Data
-# a) Save all key data frames as `.RData` files using `save()`.
+
+# a) Save each of the main datasets as .RData files for later use
 save(simpleReturns, file = "simpleReturns.RData")
 save(Returns, file = "Returns.RData")
 save(Prices, file = "Prices.RData")
 save(UnAdjustedPrices, file = "UnAdjustedPrices.RData")
 save(ReturnsDate, file = "ReturnsDate.RData")
 
-# b) Export the Prices data frame as a .csv file using write.csv()
+# b) Export Prices as a CSV file to share or inspect in Excel
 write.csv(Prices, file = "Prices.csv")
 
 # Q7) Plotting Prices and Returns
-# a) Create base plots of JPM returns using both raw and line-type options
 
-plot(Returns$JPM)             
-plot(Returns$JPM, type = "l") 
+# a) Create basic plots of JP Morgan's compound returns
+plot(Returns$JPM)                 # Default scatter plot with index on x-axis
+plot(Returns$JPM, type = "l")     # Line plot using implicit x-axis index
 
-# b) Explain why plotting with raw integer date does not work well for time series
+# b) Plot with integer-formatted date on the x-axis (can appear jagged)
 dev.new()
 plot(Returns$date, Returns$JPM,
      type = "l",
@@ -143,13 +151,12 @@ plot(Returns$date, Returns$JPM,
      ylab = "Returns",
      xlab = "Date",
      col = "red",
-     las = 1
+     las = 1                     # Label axis style
 )
 
-# c)  Recreate the plot using the corrected date.ts format
-date.ts <- ymd(Returns$date)
-
-dev.new() # new figure
+# c) Correct the date axis using proper date formatting
+date.ts <- ymd(Returns$date)     # Reconvert date to proper class
+dev.new()                        # New plot window
 plot(date.ts, Returns$JPM,
      type = "l",
      main = "Compound returns for JP Morgan",
@@ -159,76 +166,89 @@ plot(date.ts, Returns$JPM,
      las = 1
 )
 
-# d) Plot prices for multiple firms using lines() and legend()
+# d) Plot price series for multiple firms with lines() and legend()
 dev.new()
 plot(date.ts, Prices$JPM, type = "l", main = "Prices for JP Morgan and Citi",
      ylab = "Price", xlab = "Date", col = "red")
-lines(date.ts, Prices$C, col = "blue")
-lines(date.ts, Prices$MSFT, col = "green")
+lines(date.ts, Prices$C, col = "blue")      # Add Citi (C) line
+lines(date.ts, Prices$MSFT, col = "green")  # Add Microsoft line
 legend("bottomright", legend = c("JPM", "C", "MSFT"), col = c("red", "blue", "green"), lty = 1, bty = 'n')
 
-#e) Control the y-axis using ylim()
-dev.new() 
+# e) Add y-axis control using ylim()
+dev.new()
 plot(date.ts, Prices$JPM, type = "l", main = "Prices for JP Morgan and Citi",
      ylab = "Price", xlab = "Date", col = "red", ylim = c(0, 600))
 lines(date.ts, Prices$C, col = "blue")
 lines(date.ts, Prices$MSFT, col = "green")
 legend("bottomright", legend = c("JPM", "C", "MSFT"), col = c("red", "blue", "green"), lty = 1, bty = 'n')
 
-#Q8) Advanced visualisation techniques
-#a) Export a multi-line plot as a PDF using pdf() and dev.off()
-# Save plot of all adjusted prices to PDF
-pdf(file = "Seminar2_plot.pdf", width = 8, height = 6, paper = "a4", bg = "white", pointsize = 12)
+# Q8) Advanced Visualisation Techniques
 
-matplot(date.ts, Prices[,2:dim(Prices)[2]],
-        type = "l",
-        lty = 1,                         # Solid lines
-        main = "Prices",
-        ylab = "Price",
-        xlab = "Date",
-        col = 1:6,                       # Each line a different colour
-        las = 1                          # Horizontal axis labels
-)
+# a) Exporting a multi-line time series plot as a PDF
+pdf(file = "Seminar2_plot.pdf",           # File name for output
+    width = 8,                             # Width of the PDF in inches
+    height = 6,                            # Height of the PDF in inches
+    paper = "a4",                          # Paper type (for compatibility)
+    bg = "white",                          # Background colour
+    pointsize = 12)                        # Base font size
 
-dev.off()  # Close PDF device
+# Use matplot to plot all Adjusted Prices on one chart
+matplot(date.ts,                          # x-axis is the date vector
+        Prices[, 2:dim(Prices)[2]],       # y-axis is all price columns (excluding date)
+        type = "l",                       # Line plot
+        lty = 1,                          # All solid lines
+        main = "Prices",                 # Plot title
+        ylab = "Price",                  # y-axis label
+        xlab = "Date",                   # x-axis label
+        col = 1:6,                       # Set different colour for each line (1 to 6)
+        las = 1)                         # Make axis labels horizontal
+dev.off()                                 # Close the PDF device to save the file
 
-# b) Compare adjusted vs. unadjusted prices for MSFT using matplot()
-dev.new()
-matplot(date.ts,
-        cbind(Prices$MSFT, UnAdjustedPrices$MSFT),
-        type = "l",
-        lty = 1,
-        col = c("blue", "red"),
+# b) Compare Adjusted and Unadjusted Prices for MSFT using overlayed lines
+dev.new()                                 # Open a new graphics device (plot window)
+matplot(date.ts,                          # x-axis is date
+        cbind(Prices$MSFT, UnAdjustedPrices$MSFT),  # Combine adjusted and unadjusted prices
+        type = "l",                       # Line plot
+        lty = 1,                          # Solid lines
+        col = c("blue", "red"),          # Blue = Adjusted, Red = Unadjusted
         main = "Adjusted and Unadjusted Prices for MSFT",
-        ylab = "USD"
-)
-legend("topleft", legend = c("Adjusted", "Unadjusted"), col = c("blue", "red"), lty = 1, bty = "n")
+        ylab = "USD")                    # y-axis label
+legend("topleft",                         # Place legend at top-left
+       legend = c("Adjusted", "Unadjusted"),
+       col = c("blue", "red"),
+       lty = 1,
+       bty = "n")                         # No border around legend
 
-# c) Use par(mfrow = ...) and loop for subplots of all returns
-dev.new()
-par(mfrow = c(3,2))  # 3 rows, 2 columns layout
+# c) Loop over all firms' returns using subplots via par(mfrow)
+dev.new()                                 # Open new plot window
+par(mfrow = c(3, 2))                      # 3 rows, 2 columns of subplots (6 total)
 
+# Loop through each stock (excluding date column) and plot returns individually
 for (i in 2:dim(Returns)[2]) {
-  plot(date.ts, Returns[, i],
-       type = "l",
+  plot(date.ts, Returns[, i],            # x = date, y = returns
+       type = "l",                       # Line plot
        ylab = "Returns",
        xlab = "Date",
-       main = paste("Returns for", names(Prices)[i])
+       main = paste("Returns for", names(Prices)[i])  # Use company name dynamically
   )
 }
 
 # Q9) Normalising Price Levels
-# a) Create new data frame where each price series is normalised to start at 1
-normalizedPrices <- Prices
+
+# a) Create a new data frame where each series is normalised to start at 1
+normalizedPrices <- Prices                      # Copy Prices to a new object
+
+# Divide every series by its initial value (1st row), so all start at 1
 normalizedPrices$MSFT <- normalizedPrices$MSFT / normalizedPrices[1, "MSFT"]
 normalizedPrices$XOM  <- normalizedPrices$XOM  / normalizedPrices[1, "XOM"]
 normalizedPrices$GE   <- normalizedPrices$GE   / normalizedPrices[1, "GE"]
 normalizedPrices$MCD  <- normalizedPrices$MCD  / normalizedPrices[1, "MCD"]
 normalizedPrices$JPM  <- normalizedPrices$JPM  / normalizedPrices[1, "JPM"]
 normalizedPrices$C    <- normalizedPrices$C    / normalizedPrices[1, "C"]
-head(normalizedPrices)
 
-# b) Plot normalised prices for comparison using matplot()
+head(normalizedPrices)                          # Preview first few rows
+
+# b) Plot the normalised prices using matplot() to compare trends
 dev.new()
 matplot(date.ts,
         cbind(normalizedPrices$MSFT,
@@ -237,25 +257,24 @@ matplot(date.ts,
               normalizedPrices$MCD,
               normalizedPrices$JPM,
               normalizedPrices$C),
-        type = "l",
-        lty = 1,
-        col = 1:6,
-        main = "Normalised Prices",
-        ylab = "Normalised Price",
-        xlab = "Date"
-)
-legend("topleft", legend = colnames(normalizedPrices)[-1], col = 1:6, lty = 1, bty = "n")
+        type = "l",                   # Line plot
+        lty = 1,                      # Solid lines
+        col = 1:6,                    # Different colours
+        main = "Normalised Prices",  # Title
+        ylab = "Normalised Price",   # y-axis
+        xlab = "Date")               # x-axis
+legend("topleft", legend = colnames(normalizedPrices)[-1],  # All tickers
+       col = 1:6, lty = 1, bty = "n")
 
-# c) Generate a log-scaled plot for MSFT using the log = "y" option in plot()
+# c) Plot MSFT prices on a logarithmic y-axis to visualise multiplicative growth
 dev.new()
 plot(date.ts, Prices$MSFT,
      type = "l",
-     log = "y",
+     log = "y",                      # Log scale on y-axis
      main = "Log-Scaled Price for MSFT",
      ylab = "Log(Price)",
      xlab = "Date",
-     col = "purple"
-)
+     col = "purple")
 
 
 
