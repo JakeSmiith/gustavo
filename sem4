@@ -1,0 +1,259 @@
+rm(list = ls()) # clear all
+# This removes all objects from the R environment (workspace).
+# It ensures a clean slate — no leftover variables, functions, or data.
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+# These lines are commented out.
+# They show the packages that need to be installed to run the analysis successfully.
+# Uncomment and run each line if you're using a new R setup or RStudio environment.
+
+library(moments)                 # Provides functions for skewness, kurtosis, etc.
+library(knitr)                   # Tools for dynamic report generation (e.g., RMarkdown tables)
+
+library(quantmod)               # Financial modeling package: gets stock prices, charting tools
+library(tidyverse)              # Collection of core packages for data manipulation and visualization (e.g., ggplot2, dplyr, tidyr)
+library(PerformanceAnalytics)   # Tools for performance and risk analysis of financial instruments
+library(timeSeries)             # Time series data handling, especially for financial series
+library(tseries)                # Includes time series tools like stationarity tests and GARCH models
+library(roll)                   # Rolling statistics (e.g., rolling mean, sd, correlation)
+library(car)                    # Companion to Applied Regression; includes qqPlot and hypothesis testing functions
+library(MASS)                   # Statistical functions and distributions (e.g., multivariate normal)
+library(extraDistr)             # Extra distributions beyond base R and MASS
+library(rugarch)                # Fitting GARCH models using maximum likelihood
+library(QRM)                    # Quantitative Risk Management package: copulas, EVT, etc.
+library(dplyr)                  # Grammar of data manipulation (part of tidyverse, but loaded explicitly here)
+library(reshape2)               # Data reshaping (e.g., melt and cast operations for wide/long format)
+library(lubridate)              # Simplifies date-time manipulation (e.g., ymd(), dmy(), etc.)
+library(zoo)                    # Infrastructure for regular and irregular time series
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+# Sets the current working directory to the folder where seminar data is stored.
+# Allows R to locate files like Prices.RData and Returns.RData without specifying full paths.
+
+
+
+load('Returns.RData')
+load('Prices.RData')
+# Loads pre-saved R data objects: 'Returns' and 'Prices'.
+# 'Returns' likely contains daily log or compound returns for several assets.
+# 'Prices' contains price data for the same assets.
+
+date.ts <- ymd(Returns$date)
+# Converts the 'date' column in the Returns dataset into proper Date format using lubridate's ymd().
+
+dev.new() # new figure
+plot(date.ts, Returns$JPM,
+     type = "l",
+     main = "Compound returns for JP Morgan",
+     ylab = "Returns",
+     xlab = "Date",
+     col = "red",
+     las = 1
+)
+# Plots the compound returns of JP Morgan over time.
+# type = "l" draws a line chart.
+# las = 1 makes y-axis labels horizontal.
+# x-axis: dates, y-axis: returns, red line.
+
+dev.new() # new figure
+plot(ymd(Prices$date), Prices$JPM, type = 'l',
+     main = "Prices for JP Morgan",
+     ylab = "Price",
+     xlab = "Date",
+     col = "green",
+     las = 1
+)
+# Plots JP Morgan price levels over time (linear scale).
+# Date is converted using ymd(), and plotted in green.
+
+dev.new() # new figure
+plot(ymd(Prices$date), Prices$JPM, type = 'l', log = 'y',
+     main = "Prices for JP Morgan - logarithmic scale",
+     ylab = "Price",
+     xlab = "Date",
+     col = "green",
+     las = 1
+)
+# Plots JP Morgan prices on a logarithmic y-axis.
+# log = 'y' is useful to visualise percentage changes or growth rates over time.
+
+dev.new() # new figure
+plot(ymd(Prices$date), log(Prices$JPM), type = 'l',
+     main = "Prices for JP Morgan - logarithmic scale",
+     ylab = "Price",
+     xlab = "Date",
+     col = "green",
+     las = 1)
+# Alternatively, log-transform the data directly and plot on a linear axis.
+# Mathematically equivalent to previous plot, but gives finer control.
+
+n = names(Returns)
+n = n[2:length(n)]
+n
+# Extracts asset column names (excluding the 'date' column) from the Returns dataframe.
+# This sets up the vector 'n' to be used for looping through assets.
+
+for(i in n){  # i takes the values/names of the columns 
+  x = Returns[[i]] # it extracts the data of column i from the Returns dataframe
+  cat(i, mean(x), sd(x), min(x), max(x), "\n")  # "\n" is the newline character
+}
+# Loops over each asset in Returns and prints:
+# the name of the asset, its mean return, standard deviation, minimum, and maximum.
+# Output is printed in the console line-by-line.
+
+df = matrix(ncol = 4, nrow = length(n)) # creates an empty matrix with 'length(n)' rows and 4 columns
+n = names(Returns)
+n = n[2:length(n)]
+for(i in 1:length(n)){
+  x = Returns[[n[i]]]
+  df[i, ] = c(mean(x), sd(x), min(x), max(x)) # stores the summary stats as a row in the matrix
+}
+# This loop builds a summary stats matrix where each row corresponds to an asset.
+# The matrix contains: mean, standard deviation, minimum, and maximum for each asset.
+
+df = as.data.frame(df)  # Converts the matrix 'df' into a dataframe for easier manipulation and labeling.
+
+df = cbind(n, df * 100) # Combines asset names with scaled values (converted to % by multiplying by 100).
+
+names(df) = c("Asset", "mean", "sd", "min", "max")
+# Renames the columns of the dataframe for clarity.
+
+kable(df, digits = 3, caption = "Sample stats (in %)")
+# Uses knitr's kable() to generate a neat, readable table.
+# Displays all stats (mean, sd, min, max) in percent format rounded to 3 decimal places.
+# Adds the caption "Sample stats (in %)" to the table.
+
+
+
+
+
+# we now play with the returns ....
+
+y = Returns$GE
+# Extracts GE (General Electric) return series from the Returns dataframe.
+
+mean(y)             # Calculates the mean of GE returns.
+sd(y)               # Calculates the standard deviation (volatility) of GE returns.
+skewness(y)         # Measures the asymmetry of the return distribution.
+kurtosis(y)         # Measures the "tailedness" of the return distribution.
+
+jarque.bera.test(y) 
+# Tests for normality based on skewness and kurtosis.
+# Null hypothesis: returns are normally distributed.
+
+acf(y, main = "Autocorrelation of returns")
+# Plots the autocorrelation function for raw returns — used to detect serial dependence.
+
+Box.test(y, type = "Ljung-Box")
+# Ljung-Box test checks for autocorrelation up to default lag.
+# Null hypothesis: returns are independent.
+
+acf(y^2, main = "Autocorrelation of returns")
+# Autocorrelation of squared returns — used to test for volatility clustering.
+
+Box.test(y^2, type = "Ljung-Box")
+# Ljung-Box test on squared returns.
+# If significant, suggests presence of ARCH/GARCH effects.
+
+dev.new() # new figure
+x = qqPlot(y, distribution = "norm", envelope = FALSE, xlab = "normal", main = "QQ plot")
+# Q-Q plot of GE returns against normal distribution.
+# Shows whether the returns are fat-tailed or skewed relative to Gaussian.
+
+dev.new() # new figure
+x = qqPlot(y, distribution = "t", df = 4, envelope = FALSE, xlab = "t(4)")
+# Q-Q plot of GE returns against Student-t distribution with 4 degrees of freedom.
+
+y.ts = zoo(y, order.by = date.ts)
+# Converts the GE returns into a zoo (time series) object, indexed by date.
+
+AvgRet <- mean(y.ts)
+y.ts <- y.ts - AvgRet
+# Recentres the return series to have mean 0.
+
+view(y.ts)
+# Opens spreadsheet-style viewer to inspect the demeaned returns.
+
+# Running the MA model for two lengths of estimation window for GE
+
+we <- c(20, 60) 
+# Defines two moving average window sizes: 20-day and 60-day.
+
+sigmaMA <- zoo(matrix(nrow = length(y.ts), ncol = length(we)), order.by = date.ts) 
+# Pre-allocates a time series matrix to store moving average volatility estimates.
+
+for (i in 1:length(we)) {
+  sigmaMA[we[i]:length(y.ts), i] <- rollapply(data = y.ts, width = we[i], 
+                            FUN = function(x) sd(x) * sqrt(we[i] - 1) / sqrt(we[i])) 
+  # Applies rolling standard deviation adjusted by √(n-1)/√n to ensure unbiased estimate.
+}
+view(sigmaMA)
+# View the rolling standard deviation matrix.
+
+# Plot
+dev.new() # new figure
+par(mfrow = c(2, 1)) 
+# Splits the graphics window into 2 rows, 1 column (for two MA windows).
+
+for (i in 1:2) {
+  plot(x = index(sigmaMA), y = y.ts, type = 'l', main = paste('MA volatility forecast JPM - WE', we[i]), xlab = 'Trading Days', ylab = 'Returns')
+  # Plots the return series.
+  lines(x = index(sigmaMA), y = 2 * sigmaMA[, i], col = 'red')
+  lines(x = index(sigmaMA), y = -2 * sigmaMA[, i], col = 'red')
+  # Adds +/-2 standard deviation bands (proxy for expected range).
+}
+
+
+# EWMA 
+
+# Comparing EWMA models with lambda = 0.94 and lambda = 0.99
+lambda <- c(0.94, 0.99)
+# Sets the smoothing parameters for EWMA.
+# Higher lambda → slower decay → longer memory of past volatility.
+
+sigmaEWMA <- zoo(matrix(nrow = length(y.ts), ncol = length(lambda)), order.by = date.ts) 
+# Pre-allocate time series matrix for conditional volatility.
+
+hEWMA <- zoo(matrix(nrow = length(y.ts), ncol = length(lambda)), order.by = date.ts)     
+# Pre-allocate matrix for conditional variance.
+
+hEWMA[1, ] <- var(x = y.ts[1:30]) 
+# Initialise EWMA variance estimates using sample variance from first 30 days.
+
+dev.new() # new figure
+par(mfrow = c(2, 1)) 
+# 2 rows, 1 column plot layout.
+
+for (i in 1:2) {
+  for (t in 2:length(y.ts)) {
+    hEWMA[t, i] <- lambda[i] * hEWMA[t-1, i] + (1 - lambda[i]) * y.ts[t-1]^2
+    # Recursively compute variance using EWMA formula.
+    sigmaEWMA[t, i] <- sqrt(hEWMA[t, i])
+    # Convert variance to standard deviation (volatility).
+  }
+  
+  plot(x = index(sigmaEWMA), y = y.ts, type = 'l', main = paste('EWMA volatility forecast GE - lambda =', lambda[i]), xlab = 'Trading Days', ylab = 'Returns')
+  # Plot returns
+  lines(x = index(sigmaEWMA), y = 2 * sigmaEWMA[, i], col = 'red')
+  lines(x = index(sigmaEWMA), y = -2 * sigmaEWMA[, i], col = 'red')
+  # Adds ±2 EWMA volatility bands.
+}
+
+dev.new() # new figure
+plot(x = index(sigmaEWMA), y = sigmaEWMA[, 1], type = 'l', main = paste('EWMA volatility forecast GE - lambda =', lambda[1]), xlab = 'Trading Days', ylab = 'Returns')
+# Plots the volatility forecast for lambda = 0.94 on its own.
