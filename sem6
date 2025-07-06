@@ -1,0 +1,563 @@
+rm(list = ls()) # clear all
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+
+#setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+setwd("C:/Users/tpd19wzu/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+# Sets working directory to the folder containing seminar files.
+
+load('Returns.RData')
+load('Prices.RData')
+# Loads the daily return and price datasets.
+
+y = Returns$JPM
+# Extracts JP Morgan return series.
+
+date.ts <- ymd(Returns$date)
+# Converts the 'date' column to proper Date format using lubridate.
+
+dev.new() # new figure
+plot(y, type = 'l')
+# Quick plot of JPM returns without a date axis (just row index).
+
+plot(date.ts, y, type = 'l',
+     main = "Returns for JP Morgan",
+     ylab = "Returns",
+     xlab = "Date",
+     col = "blue",
+     las = 1)
+# Plots JPM returns with date on x-axis.
+
+dev.new() # new figure
+acf(y, lag = 10)
+# Plots the autocorrelation function for the return series (10 lags).
+
+dev.new() # new figure
+plot(date.ts, y^2, type = 'l',
+     main = "Squared Returns for JP Morgan",
+     ylab = "squared return",
+     xlab = "Date",
+     col = "red",
+     las = 1)
+# Time series plot of squared returns (often used to detect volatility clustering).
+
+dev.new() # new figure
+acf(y^2, lag = 20)
+# ACF of squared returns — used to detect presence of ARCH/GARCH effects.
+
+# we now run a ARCH(1) model and fit the conditional variance to returns
+y.ts = zoo(y, order.by = date.ts)
+# Creates a zoo time series object with returns ordered by date.
+
+y.ts <- y.ts - mean(y.ts)
+# Demeans the returns — important for ARCH/GARCH models.
+
+ARCH_1 = ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  
+                    mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))
+# Specifies an ARCH(1) model (GARCH(1,0)) with no ARMA terms and no constant mean.
+
+ARCH_1_fit <- ugarchfit(spec = ARCH_1, data = y.ts, solver = 'hybrid')
+# Fits the ARCH(1) model to the data using the 'hybrid' solver for robustness.
+
+# Objects from the uGARCHfit class have two slots (S4 object): @model and @fit.
+# Use the @ syntax to access their contents.
+
+hARCH1 <- zoo(x = ARCH_1_fit@fit$var, order.by = index(y.ts))  
+# Retrieves estimated conditional variance over time.
+
+sigmaARCH1 <- zoo(x = ARCH_1_fit@fit$sigma, order.by = index(y.ts)) 
+# Retrieves conditional standard deviation (volatility estimate).
+
+dev.new() # new figure
+plot(index(y.ts), sigmaARCH1, type = 'l') 
+# Plot conditional volatility series from the ARCH(1) fit.
+
+parameter_estimates <- coef(ARCH_1_fit) 
+# Extract parameter estimates (e.g., alpha1).
+
+parameter_estimates
+
+vcov_matrix <- vcov(ARCH_1_fit)
+standard_errors <- sqrt(diag(vcov_matrix)) 
+# Compute standard errors by taking square roots of diagonal elements of variance-covariance matrix.
+
+standard_errors
+
+llik_ARCH1 <- likelihood(ARCH_1_fit)  
+# Extract the value of the log-likelihood function at the estimated parameters.
+
+llik_ARCH1
+
+ARCH_1_fit@fit$matcoef 
+# Returns matrix with coefficient estimates, standard errors, t-statistics, and p-values.
+
+dev.new() # new figure
+par(mfrow = c(1, 1)) 
+plot(ARCH_1_fit) 
+# Interactive diagnostic plotting for the GARCH fit.
+# Press 1 in the console to see returns with conditional SD bands.
+
+dev.new() # new figure
+plot(index(sigmaARCH1), sigmaARCH1, type = 'l',
+     main = "sigma_t - ARCH(1)",
+     ylab = "sigma_t",
+     xlab = "Date",
+     col = "red",
+     las = 1)
+# Custom plot showing conditional standard deviation (ARCH volatility) over time.
+
+# forecasting using ARCH(1)
+outsample_obs = 500
+# Sets number of observations to exclude from fitting, used for out-of-sample forecast testing.
+
+ARCH_1_fit <- ugarchfit(spec = ARCH_1, data = y.ts, solver = 'hybrid', out.sample = outsample_obs)
+# Re-fits the model using only the in-sample portion, leaving the last 500 obs for forecasting.
+
+forc1 = ugarchforecast(ARCH_1_fit, n.ahead = 10, n.roll = outsample_obs)
+# Computes forecasts for the conditional sigma_t series: 10 days ahead, rolling over the out-of-sample window.
+
+forc1
+# View forecast object.
+
+dev.new() # new figure
+y_out_sample <- tail(y.ts, outsample_obs)
+# Extracts the last 500 actual return values (used for forecast comparison).
+
+dev.new() # new figure
+plot(index(y_out_sample), y_out_sample, type = 'l')
+# Plots actual returns in the forecast period.
+
+matplot(index(y_out_sample),
+        cbind(y_out_sample,
+              2 * forc1@forecast$sigmaFor[1, 1:outsample_obs],
+             -2 * forc1@forecast$sigmaFor[1, 1:outsample_obs]),
+        type = "l",
+        lty = 1,
+        col = 1:3,
+        main = "forecast",
+        ylab = "USD")
+# Plots the forecast ±2σ bands from the ARCH(1) model vs actual out-of-sample returns.
+# Uses matplot to overlay the return and upper/lower bands.
+
+
+
+###########################################################################
+# GARCH(1,1) Model --------------------------------------------------------
+###########################################################################
+
+# Estimate Garch(1,1) parameters and fit the conditional variance to returns
+GARCH_1_1 <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),  # garchOrder = c(q,p) where q = alpha (ARCH) and p = beta (GARCH)
+                        mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))   # the default is ARFIMA(1,0,1)
+# Specifies a standard GARCH(1,1) model with no ARMA terms in the mean equation, and assumes mean-zero returns
+
+GARCH_1_1_fit <- ugarchfit(spec = GARCH_1_1, data = y.ts, solver = 'hybrid')
+# Fits the GARCH(1,1) model to the demeaned return series y.ts using the hybrid optimiser
+
+hGARCH_1_1 <- zoo(x = GARCH_1_1_fit@fit$var, order.by = index(y.ts))
+# Extracts the estimated conditional variances (σ²ₜ) from the fitted model and stores them as a zoo time series
+
+sigmaGARCH_1_1 <- zoo(x = GARCH_1_1_fit@fit$sigma, order.by = index(y.ts))
+# Extracts the estimated conditional standard deviations (σₜ) from the fitted model and stores them as a zoo time series
+
+sigmaGARCH_1_1_df <- as.data.frame(sigmaGARCH_1_1)
+# Converts the volatility zoo object into a dataframe for further use
+
+parameter_estimates <- coef(GARCH_1_1_fit) # retrieves the parameter estimates
+# Retrieves the fitted coefficients from the model: omega, alpha1, beta1
+
+parameter_estimates
+# Displays the estimated parameters
+
+sum_alpha_beta <- sum(coef(GARCH_1_1_fit)[c('alpha1', 'beta1')])
+# Calculates the persistence of volatility: α₁ + β₁ — this indicates how persistent shocks to volatility are
+
+sum_alpha_beta
+# Displays the persistence value
+
+vcov_matrix <- vcov(GARCH_1_1_fit)
+# Extracts the variance-covariance matrix of the estimated parameters
+
+standard_errors <- sqrt(diag(vcov_matrix)) # retrieves the standard errors of the parameter estimates
+# Computes standard errors by taking the square root of the diagonal elements of the vcov matrix
+
+standard_errors
+# Displays the standard errors
+
+llik_GARCH11<- likelihood(GARCH_1_1_fit)  # retrieves the log-likelihood function attained at the parameter estimates
+# Retrieves the log-likelihood value from the fitted model
+
+llik_GARCH11
+# Displays the log-likelihood value
+
+GARCH_1_1_fit@fit$matcoef
+# Displays a matrix of estimated coefficients, standard errors, t-statistics, and p-values
+
+GARCH_1_1_fit@fit$matcoef # returns a table with estimates, standard errors, t stats and p-values
+# Redundant line; same as above — included for emphasis or repetition in original script
+
+dev.new() # new figure
+# Opens a new plotting window
+
+plot(GARCH_1_1_fit) # Running this line shows an interactive menu. Press 1 to plot Series with 2 Conditional SD Superimposed 
+# Generates diagnostic plots for the fitted model, including conditional SD bands
+
+# Code to check estimated conditional variance, first day in the sample
+sample_var <- var(y.ts)[1]
+# Computes the raw sample variance of the series (first observation)
+
+est_uncond_var <- as.numeric(coef(GARCH_1_1_fit)['omega']) / (1 - sum_alpha_beta)
+# Computes the unconditional variance implied by the GARCH(1,1) model: ω / (1 - α - β)
+
+est_uncond_var
+# Displays the estimated unconditional variance
+
+v_1 <- (1-sum_alpha_beta) * est_uncond_var + sum_alpha_beta * sample_var 
+# Computes variance at time t = 1 using GARCH recursion formula:
+# v₁ = (1 - α - β) * unconditional_variance + (α + β) * sample_variance
+
+v_1
+# Displays the conditional variance at time 1
+
+# Code to fit conditional variances
+omega <- as.numeric(coef(GARCH_1_1_fit)['omega'])
+# Extracts omega (constant term)
+
+alpha <- as.numeric(coef(GARCH_1_1_fit)['alpha1'])
+# Extracts ARCH parameter α₁
+
+beta <- as.numeric(coef(GARCH_1_1_fit)['beta1'])
+# Extracts GARCH parameter β₁
+
+v_2 <- omega + alpha * as.numeric(y.ts[1]^2) + beta * v_1
+# Manually computes conditional variance at time t = 2 using GARCH equation:
+# v₂ = ω + α * y₁² + β * v₁
+
+v_2
+# Displays the conditional variance at time 2
+
+
+###########################################################################
+# Log Likelihood Ratio Test -------------------------------------------------
+###########################################################################
+
+# ARCH(1) - Restricted model is nested in GARCH(1,1) - Unrestricted model
+ARCH_1 = ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1, 0)),  # Define ARCH(1): one lag of squared residuals (alpha), no GARCH term (beta)
+                    mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))   # No AR or MA terms in the mean equation
+
+ARCH_1_fit <- ugarchfit(spec = ARCH_1, data = y.ts, solver = 'hybrid') # Fit ARCH(1) model to data; hybrid solver increases convergence robustness
+
+# LR = 2 * (LogU - LogR) ~ Chi-squared(1)
+LR = 2 * (likelihood(GARCH_1_1_fit) - likelihood(ARCH_1_fit))  # Likelihood ratio test: compares GARCH(1,1) and ARCH(1) fit
+LR  # Output LR statistic
+
+CV <- qchisq(p = 0.95, df = 1, lower.tail=TRUE)  # Chi-squared critical value at 95% confidence level with 1 degree of freedom
+CV  # Output critical value
+
+if (LR > CV) {
+  print('H0: LR = 0 is rejected.')  # Reject null hypothesis — GARCH(1,1) offers significant improvement
+} else {
+  print('We cannot reject H0')  # Fail to reject — no significant improvement over ARCH(1)
+}
+
+# Check for Normality and Serial Correlation of the standardized residuals:
+eps <- y.ts / GARCH_1_1_fit@fit$sigma  # Standardised residuals: actual returns divided by fitted conditional volatility
+eps2 <- eps^2  # Squared residuals — useful for volatility clustering and autocorrelation analysis
+
+dev.new() # new figure
+par(mfrow=c(1,1)) 
+qqPlot(as.vector(eps), xlab = 'Standard Normal Quantiles', 
+       ylab = 'Quantiles of Input Sample', main = 'QQplot of sample data vs Standard Normal', 
+       envelope = FALSE)  # Q-Q plot comparing empirical residuals to standard normal — visually assesses normality
+
+# Histogram of residuals fitted with standard normal
+dev.new() # new figure
+par(mfrow=c(1,1)) 
+seq_curve <- seq(min(eps), max(eps), length = 100)  # Generate grid for density overlay
+normal_density <- dnorm(x = seq_curve, mean = mean(eps), sd = sd(eps))  # Normal distribution fitted to residuals
+hist(x = eps, prob = TRUE, breaks = 100, main = 'GARCH(1,1) Residuals', col = 'blue', xlab = '')  # Histogram of standardised residuals
+lines(seq_curve, normal_density, lwd = 2, col = 'red')  # Overlay fitted normal density in red
+
+# JB Test
+jarque.bera.test(eps)  # Test for skewness and kurtosis in residuals — formal test for normality
+CV <- qchisq(p = 0.95, df = 2, lower.tail=TRUE)  # Critical value for JB test (2 degrees of freedom: skewness + kurtosis)
+CV  # Output JB critical value
+
+# ACF's
+dev.new() # new figure
+acf(x = eps, main = 'Sample Autocorrelation Function - Residuals')  # ACF of residuals — check for remaining serial correlation
+dev.new() # new figure
+acf(x = eps2, main = 'Sample Autocorrelation Function - Residuals squared')  # ACF of squared residuals — check for remaining volatility clustering
+
+# LB Test
+Box.test(eps2, type = "Ljung-Box", lag = 20)  # Ljung-Box test on squared residuals to detect remaining ARCH effects
+CV <- qchisq(p = 0.95, df = 20, lower.tail=TRUE)  # Critical value for 20 lags
+CV  # Output critical value
+
+# GARCH(1,1) Simulation
+GARCH_1_1_simu <- ugarchsim(GARCH_1_1_fit, n.sim = 1000, n.start = 200, m.sim = 1,)  # Simulate 1 path of 1000 observations from GARCH(1,1) model
+sigma_sim <- GARCH_1_1_simu@simulation$sigmaSim   # Extract simulated conditional volatility (σ_t)
+series_sim <- GARCH_1_1_simu@simulation$seriesSim # Extract simulated return path
+
+dev.new() # new figure
+plot(sigma_sim,type='l')  # Plot simulated volatility
+dev.new() # new figure
+plot(series_sim,type='l')  # Plot simulated returns
+
+# FORECASTING ------>>
+
+# forecasting using GARCH(1,1)
+outsample_obs = 500 # Number of observations at the end of the sample to leave out for out-of-sample forecasting
+
+GARCH_1_1_fit_fore <- ugarchfit(spec = GARCH_1_1, data = y.ts, solver = 'hybrid', out.sample = outsample_obs) 
+# Fit the GARCH(1,1) model, excluding the last 500 data points for out-of-sample testing
+
+forc_garch11 = ugarchforecast(GARCH_1_1_fit_fore, n.ahead = 10, n.roll = outsample_obs) 
+# Generate 10-step ahead rolling forecasts over the out-of-sample window
+
+forc_garch11 
+# Display the forecast object, which includes conditional means and volatilities
+
+last_date <- index(y.ts)[length(y.ts) - outsample_obs] 
+# Get the last in-sample date (i.e., the first date in the forecast horizon)
+
+last_date 
+# Display the last in-sample date
+
+y_out_sample <- tail(y.ts, outsample_obs) 
+# Extract the last 500 observations as the out-of-sample data
+
+dev.new() # new figure window
+matplot(index(y_out_sample), 
+        cbind(y_out_sample, 
+              2 * forc_garch11@forecast$sigmaFor[1,1:outsample_obs], 
+             -2 * forc_garch11@forecast$sigmaFor[1,1:outsample_obs]), 
+        type = "l", 
+        lty = 1, 
+        col = 1:3, 
+        main = "forecast", 
+        ylab = "Returns")  
+# Plot actual out-of-sample returns against ±2 conditional standard deviation bands (approximate 95% confidence interval)
+
+# or if we compare the function with the manual computation
+GARCH_1_1_fit_fore <- ugarchfit(spec = GARCH_1_1, data = y.ts, solver = 'hybrid') 
+# Refit the model without leaving out any out-of-sample observations
+
+forc_garch11 = ugarchforecast(GARCH_1_1_fit_fore, n.ahead = 10) 
+# Generate a 10-step ahead forecast from the full sample
+
+forc_garch11 
+# Display updated forecast results
+
+# checking the dates we forecast ..
+fore_dates <- colnames(forc_garch11@forecast$sigmaFor) 
+# Extract the column names (dates) of the forecasted conditional volatilities
+
+fore_dates[1] 
+# Display the first forecast date — i.e., the first date after the end of the sample
+
+V_T = hGARCH_1_1[length(y.ts),] 
+# Extract the last fitted conditional variance V_T (from historical GARCH fit)
+
+V_T 
+# Display V_T
+
+y_T = y.ts[length(y.ts),] 
+# Extract the last observed return
+
+y_T 
+# Display y_T
+
+V_T_1 = omega + alpha * (y_T^2) + beta * V_T 
+# Compute one-step-ahead forecast variance manually using the GARCH(1,1) recursion
+
+V_T_1 
+# Display V_{T+1}
+
+sqrt(V_T_1) 
+# Compute standard deviation σ_{T+1} from the forecasted variance
+
+V_T_2 = omega + (alpha + beta) * V_T_1 
+# Compute two-step-ahead forecast variance assuming E[y^2_{T+1}] = σ^2_{T+1}
+
+V_T_2 
+# Display V_{T+2}
+
+sqrt(V_T_2) 
+# Compute standard deviation σ_{T+2}
+
+# we now compare with the results from the ugarchforecast() function
+forc_garch11@forecast$sigmaFor[,1] 
+# Retrieve the first 10-step ahead conditional standard deviations from the forecast object for comparison
+
+
+
+
+# working with alternative GARCH specifications ------->>
+
+# we set the distribution as a Student t distribution (allow for fatter tails)
+tGARCH_1_1 <- ugarchspec(
+  variance.model = list(model = 'sGARCH', garchOrder = c(1,1)), 
+  distribution.model = 'std', 
+  mean.model = list(armaOrder = c(0, 0), include.mean = FALSE)
+)
+# Define a GARCH(1,1) model where the conditional distribution of the error terms is Student's t
+# 'std' allows for fat tails — useful if returns exhibit excess kurtosis
+
+tGARCH_1_1_fit <- ugarchfit(spec = tGARCH_1_1, data = y.ts, solver = 'hybrid')
+# Estimate the t-GARCH(1,1) model using the specified settings and time series data
+
+htGARCH_1_1 <- zoo(x = tGARCH_1_1_fit@fit$var, order.by = index(y.ts))
+# Extract the fitted conditional variances and align with the date index
+
+sigmatGARCH_1_1 <- zoo(x = tGARCH_1_1_fit@fit$sigma, order.by = index(y.ts))
+# Extract the fitted conditional standard deviations and align with the date index
+
+dev.new() # new figure
+plot(tGARCH_1_1_fit) 
+# Open a new graphical window and plot diagnostics for the fitted t-GARCH(1,1) model
+# An interactive menu appears — pressing "1" shows the time series with ±2σ confidence bands
+
+
+# LogLikelihood Ratio Test 
+
+# GARCH(1,1) - Restricted model is nested in t-GARCH(1,1) - Unrestricted model
+# We're testing whether allowing for Student t-distributed errors improves model fit significantly
+
+# LR = 2 * (LogU - LogR) ~ Chi-squared(1)
+LR = 2 * (likelihood(tGARCH_1_1_fit) - likelihood(GARCH_1_1_fit))
+# Compute the likelihood ratio statistic
+# LogU = log-likelihood of the unrestricted model (t-GARCH)
+# LogR = log-likelihood of the restricted model (standard GARCH with normal errors)
+
+LR 
+# Display the value of the LR statistic
+
+CV <- qchisq(p = 0.95, df = 1, lower.tail=TRUE)
+# Compute the critical value from the chi-squared distribution with 1 degree of freedom at the 5% significance level
+
+CV 
+# Display the critical value
+
+if (LR > CV) {
+  print('H0: LR = 0 is rejected.')
+} else {
+  print('We cannot reject H0')
+}
+# If LR > CV, reject the null hypothesis that the normal distribution is sufficient
+# If not, there's no strong evidence that using Student's t-distribution improves the model significantly
+
+
+eps_t <- y.ts / tGARCH_1_1_fit@fit$sigma 
+# Compute standardized residuals for the t-GARCH(1,1) model by dividing returns by fitted σ_t
+
+dev.new() # new figure
+par(mfrow=c(1,1)) 
+qqPlot(as.vector(eps_t), xlab = 'Standard Normal Quantiles', 
+       ylab = 'Quantiles of Input Sample', main = 'QQplot of sample data vs Standard Normal', 
+       envelope = FALSE)
+# Generate a Q-Q plot comparing the empirical distribution of standardized residuals with a standard normal
+# Useful to visually assess fat tails, skewness, or other deviations from normality
+
+
+
+# GJR - GARCH(1,1) -------->>
+
+# Estimate GJR-Garch(1,1) parameters and fit the conditional variance to returns
+GJR_GARCH_1_1 <- ugarchspec(
+  variance.model = list(model = 'gjrGARCH', garchOrder = c(1,1)), 
+  mean.model = list(armaOrder = c(0, 0), include.mean = FALSE)
+)
+# Define a GJR-GARCH(1,1) model:
+# 'gjrGARCH' accounts for asymmetric effects — i.e., negative returns have a different (often stronger) effect on volatility than positive returns.
+# garchOrder = c(1,1) means we're estimating one ARCH (α) and one GARCH (β) term.
+# The mean equation is set to white noise (ARMA(0,0)) and does not include a mean term (include.mean = FALSE).
+
+GJR_GARCH_1_1_fit <- ugarchfit(spec = GJR_GARCH_1_1, data = y.ts, solver = 'hybrid')
+# Fit the model to the returns series `y.ts` using the hybrid solver.
+# 'hybrid' tries multiple optimisers to ensure convergence when estimating the GJR-GARCH parameters.
+
+GJR_GARCH_1_1_fit@fit$matcoef
+# Display the fitted model's matrix of coefficients.
+# This includes parameter estimates, standard errors, t-values, and p-values for each term (omega, alpha1, beta1, gamma1, etc.)
+
+hGJR_GARCH_1_1 <- zoo(x = GJR_GARCH_1_1_fit@fit$var, order.by = index(y.ts))
+# Extract the conditional variances from the fitted model and bind them to the date index using the zoo format.
+# h_t represents the variance σ²_t for each t.
+
+sigmaGJR_GARCH_1_1 <- zoo(x = GJR_GARCH_1_1_fit@fit$sigma, order.by = index(y.ts))
+# Extract the conditional standard deviations σ_t from the fitted model and bind them to the date index using zoo format.
+
+dev.new() # new figure
+plot(GJR_GARCH_1_1_fit) 
+# Open a new graphics device and produce diagnostic plots for the fitted GJR-GARCH model.
+# Pressing "1" in the interactive menu will show the returns time series with ±2σ confidence intervals (i.e., conditional volatility bands).
+
+# APARCH(1,1) ------------------>> -
+
+# Estimate GJR-Garch(1,1) parameters and fit the conditional variance to returns
+APARCH_GARCH_1_1 <- ugarchspec(variance.model = list(model = 'apARCH', garchOrder = c(1,1)), 
+                            mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))
+# This sets the APARCH(1,1) model specification.
+# 'apARCH' allows for asymmetry and a flexible power term on the volatility.
+# garchOrder = c(1,1) includes 1 ARCH (α) and 1 GARCH (β) term.
+# armaOrder = c(0, 0) means no ARMA terms in the mean equation.
+# include.mean = FALSE indicates the conditional mean is assumed to be zero.
+
+APARCH_GARCH_1_1_fit <- ugarchfit(spec = APARCH_GARCH_1_1, data = y.ts, solver = 'hybrid')
+# Fits the APARCH(1,1) model to the time series y.ts using the 'hybrid' optimiser.
+# The 'hybrid' solver combines multiple optimisation methods to improve convergence.
+
+hAPARCH_GARCH_1_1 <- zoo(x = APARCH_GARCH_1_1_fit@fit$var, order.by = index(y.ts))
+# Extracts the estimated conditional variances (h_t) from the fitted model.
+# Wraps them in a zoo object with the original time index.
+
+sigmaAPARCH_GARCH_1_1 <- zoo(x = APARCH_GARCH_1_1_fit@fit$sigma, order.by = index(y.ts))
+# Extracts the estimated conditional standard deviations (σ_t) from the fitted model.
+# Also wrapped in a zoo object with proper time alignment.
+
+APARCH_GARCH_1_1_fit@fit$matcoef
+# Displays the matrix of estimated coefficients, standard errors, t-stats, and p-values.
+
+dev.new() # new figure
+# Opens a new graphics window for plotting.
+
+plot(APARCH_GARCH_1_1_fit) # Running this line shows an interactive menu. Press 1 to plot Series with 2 Conditional SD Superimposed 
+# Plots diagnostic plots of the APARCH(1,1) model.
+# You can interactively select which plot to display (e.g., time series with ±2σ bands, residual diagnostics, etc.).
