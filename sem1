@@ -124,18 +124,21 @@ plot(citi$PRC, type = "b", main = "Price of Citi - Both")
 # Q6) Implementing a Simple Random Walk
 
 # Initialise
-T <- 2000
-p <- matrix(nrow = T, ncol = 1)
-r <- matrix(nrow = T - 1, ncol = 1)
-eps <- rnorm(n = T) # Normally distributed shocks
+T <- 2000                                          #Sets total number of time periods
+p <- matrix(nrow = T, ncol = 1)                    #Create empty column vector to store price series (length T)
+r <- matrix(nrow = T - 1, ncol = 1)                #Create empty column vector to store returns (length T-1)
+eps <- rnorm(n = T) # Normally distributed shocks  #Generate T random shocks from standard normal distribution (mean = 0, sd = 1)
 
 # Loop
 for (t in 1:T) {
   if (t == 1) {
-    p[t] <- 3 + eps[t]
+    #Initial value for price series
+    p[t] <- 3 + eps[t]   # Start price series at 3 plus first shock (random walk with initial value)
   } else {
-    p[t] <- p[t - 1] + eps[t]
-    r[t] <- p[t] - p[t - 1]
+    # Evolve price using previous value and current shock
+    p[t] <- p[t - 1] + eps[t]   #Price today = price yesterday + shock today
+    # Compute return as first difference
+    r[t] <- p[t] - p[t - 1]    # Return = today's price - yesterday's price (i.e., simple return)
   }
 }
 
