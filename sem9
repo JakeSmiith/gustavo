@@ -1,0 +1,246 @@
+rm(list = ls()) # clear all
+
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+#install.packages("rmgarch")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+library(rmgarch)
+
+
+
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+#setwd("C:/Users/tpd19wzu/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+
+
+load('Returns.RData')
+load('Prices.RData')
+# Load historical returns and prices data for multiple assets.
+
+date.ts <- ymd(Returns$date)
+# Convert the date column into proper Date format using lubridate.
+
+Asset="JPM"
+y=Returns[[Asset]]
+# Select the returns for a specific asset (JPM).
+
+seed=888
+sigma=sd(y)
+# Calculate the standard deviation of the selected asset's returns.
+
+mean=0 # could be mean(y)
+# Assume zero mean for simulation; could alternatively use the sample mean.
+
+price=tail(Prices[[Asset]],1)
+# Get the most recent price of the asset (used as the base for simulation).
+
+p=0.01 # significance level for VaR
+
+set.seed(seed=seed)
+S = 1000
+# Set random seed and number of simulations.
+
+ysim=rnorm(S,mean=1+mean, sd=sigma)
+# Simulate S future gross returns (1 + r), with r ~ N(mean, sigma²).
+
+view(ysim)
+Psim=price * ysim
+view(Psim)
+# Simulate future prices by multiplying today’s price by gross return.
+
+# or just
+Psim=price * rnorm(S,mean=1+mean, sd=sigma)
+# Alternate way to simulate prices directly.
+
+Q=Psim-price
+# Calculate the profit/loss distribution (difference between future and current prices).
+
+Res=-sort(Q)[S* p]
+# Compute Historical Simulation VaR at 1% quantile level.
+
+cat(S,Res,-price * qnorm(p,sd=sigma),"\n")
+cat(S,Res,-price * sigma *qnorm(p,sd=1),"\n")
+# Compare Simulated VaR with Parametric VaR (based on Normal assumption).
+
+S=seq(10000,1e6,by=5000)
+SimVaR=vector(length=length(S))
+# Define a range of different simulation sizes to assess convergence of simulated VaR.
+
+TrueVaR=-price * sigma*qnorm(p,mean=0,sd=1)
+# True analytical VaR under Normal distribution.
+
+for(i in 1:length(S)){
+  ysim=rnorm(S[i],mean=1+mean, sd=sigma)
+  Psim=price * ysim
+  Q=Psim-price
+  SimVaR[i]=-sort(Q)[S[i]* p]
+}
+# Loop over different simulation sizes and compute VaR.
+
+dev.new()
+plot(S,SimVaR)
+segments(min(S),TrueVaR,max(S),TrueVaR,col="red")
+# Plot simulated VaR vs simulation size; red line is true VaR.
+
+source("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/Functions/bs.R")
+# Load Black-Scholes pricing function.
+
+sigmaAnnual=sqrt(250)*sigma
+# Annualise volatility.
+
+r=0.09
+K=price*0.9
+Maturity=2
+# Set risk-free rate, strike price, and time to maturity (2 years).
+
+t =bs(K=K, P=price, r=r, sigma=sigma*sqrt(250), T=Maturity)
+t$Call
+t$Put
+# Price European Call and Put options with today’s price using Black-Scholes.
+
+S=1e5
+Psim=price * rnorm(S,mean=1+mean, sd=sigma)
+# Simulate asset prices at T+1.
+
+tSim=bs(K=K, P=Psim, r=r, sigma=sigmaAnnual, T=Maturity-1/365)
+Q =tSim$Call-t$Call
+# Calculate change in option value over one day.
+
+view(Q)
+Res=-sort(Q)[S* p]
+Res
+# Compute 1% quantile of loss on option position (VaR).
+
+# Now for a portfolio: stock + long call + long put
+
+K.call=price*0.9
+Maturity.call=2
+call =bs(K=K.call, P=price, r=r, sigma=sigmaAnnual, T=Maturity.call)$Call
+# Price long call at T.
+
+# or
+t_1=bs(K=K.call, P=price, r=r, sigma=sigmaAnnual, T=Maturity.call)
+call=t_1$Call
+
+K.put=price*1.1
+Maturity.put=0.7
+put =bs(K=K.put, P=price, r=r, sigma=sigmaAnnual, T=Maturity.put)$Put
+# Price long put at T.
+
+S=1e5
+Psim=price * rnorm(S,mean=1+mean, sd=sigma)
+
+Q = Psim+
+  bs(K=K.call, P=Psim, r=r, sigma=sigma*sqrt(250), T=Maturity.call-1/365)$Call +
+  bs(K=K.put, P=Psim, r=r, sigma=sigma*sqrt(250), T=Maturity.put-1/365)$Put -
+  (call + put + price )
+# Simulate future value of the portfolio (stock + call + put) and subtract current portfolio value.
+
+Res=-sort(Q)[S* p]
+Res
+# Compute 1% VaR of full portfolio.
+
+# Bivariate Simulation for 2 assets
+Assets<- c("JPM","MCD")
+y <- Returns[,Assets]
+price <- tail(Prices[,Assets],1)
+price
+
+Sigma <- cov(y)
+print(Sigma)
+# Estimate historical covariance matrix.
+
+set.seed(seed)
+S<-1000
+r <- rmvnorm(S,sigma=Sigma)
+# Simulate S draws from bivariate Normal with historical covariance.
+
+view(r)
+print(cov(r))
+
+Prices1 = as.numeric(price[1])*(1+r[,1])
+Prices2 = as.numeric(price[2])*(1+r[,2])
+# Simulate T+1 prices for both assets.
+
+SimPrice=cbind(Prices1,Prices2)
+head(SimPrice)
+
+head(price)
+print(colMeans(SimPrice))
+# Check simulation accuracy vs expectations.
+
+K1<-1
+K2<-1
+today = K1*price[1,1] + K2*price[1,2]
+# Initial portfolio value: 1 share of each.
+
+tomorrow =  K1*SimPrice[,1] + K2*SimPrice[,2]
+head(tomorrow)
+view(tomorrow)
+Q = tomorrow - today
+head(Q)
+SimVaR = -sort(Q)[p*S]
+SimVaR
+# Simulated 1% portfolio VaR.
+
+w<-as.numeric(price/sum(price))
+w
+# Equal-weighted portfolio based on current prices.
+
+s2<- w %*% Sigma %*% w
+s2<-as.numeric(s2)
+# Portfolio variance under delta-normal method.
+
+value<- w %*% (as.numeric(price[1, ]))
+value
+# Current portfolio value based on weights.
+
+# Alternatively (same outcome, just more verbose):
+w_m <- matrix(as.numeric(price/sum(price)),nrow  =length(w))
+p_m <- matrix(as.numeric(price[1, ]), nrow=length(price[1, ]))
+w_m
+p_m
+s2 <- t(w_m) %*% Sigma %*% w_m
+s2
+value_m <- t(w_m) %*% p_m
+value_m
+
+VaR<- -qnorm(p) * value * sqrt(s2 )
+cat("VaR = $",VaR,", SimVaR $",SimVaR,"\n",sep="")
+# Final comparison between analytical and simulated VaR of the bivariate portfolio.
