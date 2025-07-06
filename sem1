@@ -26,9 +26,8 @@ invisible(lapply(packages, install_if_missing))
 # Load all packages
 invisible(lapply(packages, function(pkg) library(pkg, character.only = TRUE)))
 
-##############################
+
 # Q2) Understanding Basic R Commands
-##############################
 
 # Arithmetic and log
 2^5
@@ -40,9 +39,9 @@ cat("the answer is:", log(a), "or", result, "\n")
 
 
 
-##############################
+
 # Q3) Building, Indexing and Manipulating Matrices
-##############################
+
 
 # Empty matrix
 A <- matrix(nrow = 3, ncol = 2)
@@ -72,11 +71,8 @@ B_inv <- solve(B)
 D <- B %*% C
 V <- B %*% B_inv # Should return identity
 
-
-
-##############################
 # Q4) Importing / Exploring Financial Data
-##############################
+
 
 # Import dataset
 setwd("C:/Users/tpd19wzu/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
@@ -113,10 +109,7 @@ lowest_citi <- min(citi$RET) * 100
 paste0("Lowest return for Citi: ", lowest_citi , "%")
 
 
-
-##############################
 # Q5) Plotting Price Data
-##############################
 
 dev.new()
 plot(citi$PRC, type = "l", main = "Price of Citi - Line")
@@ -128,10 +121,7 @@ dev.new()
 plot(citi$PRC, type = "b", main = "Price of Citi - Both")
 
 
-
-##############################
 # Q6) Implementing a Simple Random Walk
-##############################
 
 # Initialise
 T <- 2000
