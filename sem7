@@ -1,0 +1,339 @@
+rm(list = ls()) # clear all
+
+
+#install.packages("knitr")
+#install.packages("rmarkdown")
+#install.packages("markdown")
+#install.packages("tidyverse")
+#install.packages("PerformanceAnalytics")
+#install.packages("timeSeries")
+#install.packages("tseries")
+#install.packages("roll")
+#install.packages("car")
+#install.packages("MASS")
+#install.packages("extraDistr")
+#install.packages("rugarch")
+#install.packages("QRM")
+#install.packages("dplyr")
+#install.packages("reshape2")
+#install.packages("lubridate")
+#install.packages("common")
+#install.packages("rmgarch")
+
+
+library(moments)
+library(knitr)
+
+
+library(quantmod)
+library(tidyverse)
+library(PerformanceAnalytics)
+library(timeSeries)
+library(tseries)
+library(roll)
+library(car)
+library(MASS)
+library(extraDistr)
+library(rugarch)
+library(QRM)
+library(dplyr)
+library(reshape2)
+library(lubridate)
+library(zoo)
+library(rmgarch)
+
+
+setwd("C:/Users/SCHERRER/Dropbox/Gus_stuff/teaching/__LSE/FM321/2024-25/Seminars/data_wrds")
+# Sets the working directory to the specified path so R knows where to find the data files.
+
+load('Returns.RData')
+load('Prices.RData')
+# Loads two RData files — Returns (presumably a data frame of asset returns) and Prices (not used below but likely raw price data).
+
+date.ts <- ymd(Returns$date)
+# Converts the 'date' column in the Returns data frame into a date format using lubridate's ymd() function and stores it as a time series index.
+
+# We start with the multivariate EWWMA model
+# This is a multivariate Exponentially Weighted Moving Average model for conditional variances and covariances.
+
+# We need to use as.matrix because Returns is a data frame and we cannot do matrix algebra with data frames
+y=as.matrix(Returns[,c("JPM","MCD")])
+# Extracts the returns of JPM and MCD from the Returns data frame and converts them to a matrix so that matrix operations can be performed.
+
+# bivariate model (two assets): two variances and one covariance (correlation): 3 set of estimates
+dim(y)
+# Returns the dimensions of the y matrix (T x 2, where T is number of observations, and 2 assets).
+
+EWMA = matrix(nrow=dim(y)[1],ncol=3) # T x 3
+# Pre-allocates a matrix to store conditional variances and covariance estimates. Columns: [var(JPM), var(MCD), cov(JPM,MCD)].
+
+lambda = 0.94
+# The decay factor (λ) for EWMA; gives 94% weight to previous estimate, 6% to new shock.
+
+S = cov(y)
+# Computes the sample covariance matrix of the two assets (JPM and MCD) as initial value for S (the conditional covariance matrix).
+
+S # starting value
+# Prints the starting covariance matrix S.
+
+EWMA[1,1]<-S[1,1]
+EWMA[1,2]<-S[2,2]
+EWMA[1,3]<-S[2,1]
+# Initialises the first row of the EWMA matrix using the initial variances and covariance from S.
+
+EWMA[1:5,] # just printing out
+# Displays the first five rows of the EWMA matrix, which at this point only has the first row filled.
+
+# testing matrix product in the loop (before actually doing it ...)
+# for each t, we need to have y_t y^{'}_{t}, which is a 2 x 2 matrix
+i=2
+y[i-1,] %*% t(y[i-1,])
+# Calculates the outer product of the return vector at time t−1. This gives a 2×2 matrix needed for updating S.
+
+# be careful ...
+y[i-1,] %*% y[i-1,]
+# Computes inner product of return vector with itself — returns a scalar.
+
+# or 
+t(y[i-1,]) %*% y[i-1,]
+# Same as above — also a scalar (dot product), not a matrix.
+
+# don't give what we want! 
+# These alternatives don't yield the 2×2 covariance matrix form needed for S updates.
+
+# We now build the multivariate EWMA model
+for (i in 2:dim(y)[1]){
+  S = lambda*S+(1-lambda)*y[i-1,] %*% t(y[i-1,])
+  EWMA[i,] = c(S)[c(1,4,2)] # c(A) returns a row vector with vec(A) (if A is m x n , c(A) is 1 x mn)
+}
+# This loop recursively updates S using the EWMA formula:  
+# S_t = λ * S_{t−1} + (1−λ) * y_{t−1} y_{t−1}'
+# Then extracts the variances and covariance from the updated S matrix and stores them in EWMA matrix.
+
+dev.new() # new figure
+# Opens a new graphics device (separate plotting window).
+
+matplot(date.ts,
+        sqrt(EWMA[,1:2]),
+        type = "l",
+        lty=1,
+        col = 1:2,
+        main = "Conditional Variances",
+        ylab = "USD"
+)
+# Plots the conditional standard deviations (square root of variances) for JPM and MCD over time.
+# Two lines: one for each asset.
+
+legend("topright", 
+       legend = c("JPM", "MCD"), 
+       col = 1:2, 
+       lty = 1)
+# Adds a legend to the plot identifying JPM and MCD lines.
+
+# we now get the correlation:
+rhoEWMA <- EWMA[,3]/sqrt(EWMA[,1]*EWMA[,2])
+# Computes time-varying conditional correlation:  
+# ρ_t = cov(JPM,MCD)_t / (σ_JPM_t * σ_MCD_t)
+
+# Sample Correlations (unconditional correlation) - JPM vs MCD
+stocks_corr <- cor(y) 
+# Calculates the sample (unconditional) correlation between the two assets.
+
+stocks_corr
+# Prints the sample correlation matrix.
+
+dev.new() # new figure
+# Opens a new graphics window for the correlation plot.
+
+plot(date.ts,rhoEWMA,type='l',
+     main = "Conditional correlation between JPM ands MCD",
+     ylab = "correlation",
+     xlab = "Date",
+     col = "red",
+     las = 1
+)
+# Plots the time-varying EWMA correlation between JPM and MCD over time.
+# Uses a red line and axis labels.
+
+# we now run the DCC model
+
+# Create the univariate specification
+uni_spec = ugarchspec(variance.model = list(
+    garchOrder = c(1,1)),
+  mean.model = list(
+    armaOrder = c(0,0),
+    include.mean = FALSE)
+)
+# Defines a univariate GARCH(1,1) specification without a mean component (mean = 0). This will be replicated for each asset.
+
+mspec = multispec(replicate(2, uni_spec)) # we replicate the same specification for each asset
+# Builds a list of two identical univariate GARCH specifications to model the two time series (e.g., JPM and MCD).
+
+mspec
+# Displays the multiple specification object (for inspection).
+
+# we now add specification to the DCC model
+spec = dccspec(
+  uspec = mspec,
+  dccOrder = c(1,1),          # c(1,1) stands for DCC(1,1)
+  distribution = "mvnorm"     # normal distribution
+)
+# Constructs the full DCC-GARCH specification using the univariate models (uspec). DCC(1,1) models the evolution of correlations over time.
+
+spec
+# Displays the full DCC specification object.
+
+res = dccfit(spec, data = y)
+# Fits the DCC-GARCH(1,1) model to the bivariate returns matrix y (e.g., JPM and MCD).
+
+res
+# Prints the summary of the model fit — may include log-likelihood, parameter estimates, convergence info.
+
+dev.new() # new figure
+# Opens a new plotting window.
+
+plot(res) # interesting outputs are: 2 and 4.
+# Plots diagnostics and model output — options 2 (conditional SDs) and 4 (conditional correlation) are especially informative.
+
+names(res@model)
+# Displays the list of named components in the 'model' slot of the DCC fit object.
+
+res@mfit$matcoef  # recovers the matrix with the parameter estimates
+# Extracts estimated parameters (omega, alpha, beta, DCC alpha and beta, etc.) in matrix form.
+
+res@mfit$llh      # recovers the llik
+# Extracts the log-likelihood value at the solution — useful for comparing across models.
+
+names(res@mfit) # check the name of the variables inside the slot mfit
+#coef: The estimated coefficients of the DCC model.
+#H: The conditional covariance matrices.
+#R: The conditional correlation matrices.
+#Q: The standardized residuals.
+#stdresid: The standardized residuals from the univariate GARCH models.
+
+# we now recover the conditional variances
+H_DCC<-res@mfit$H
+# Extracts the full 3D array of conditional covariance matrices (1 per time point).
+
+dim(H_DCC) # k x k x num_days (tri-dimensional array)
+# Displays the dimensions of the H array. For k assets and T days, it's k×k×T.
+
+H_DCC[,,1] # getting the covariance matrix first day
+# Shows the 2×2 conditional covariance matrix on the first day.
+
+H_DCC[,,1:5] # getting the covariance matrix first 5 days
+# Shows the conditional covariance matrices for the first five days.
+
+sigmas_DCC<-cbind(sqrt(H_DCC[1,1,]),sqrt(H_DCC[2,2,]))
+# Extracts and combines the conditional standard deviations (√variance) for both assets across all days.
+
+dim(sigmas_DCC)
+# Prints the dimension of the standard deviation matrix (T×2).
+
+dev.new() # new figure
+# Opens a new plotting device for comparing EWMA and DCC results.
+
+matplot(date.ts,
+        cbind(sqrt(EWMA[,1:2]),sigmas_DCC),
+        type = "l",
+        lty=1,
+        col = 1:4,
+        main = "Conditional Variances: EWMA and DCC",
+        ylab = "USD"
+)
+# Plots 4 time series: conditional SDs from EWMA (JPM & MCD) and from DCC (JPM & MCD).
+# Line colours 1–4 represent JPM-EWMA, MCD-EWMA, JPM-DCC, and MCD-DCC.
+
+legend("topright", 
+       legend = c("JPM-EWMA", "MCD-EWMA","JPM-DCC", "MCD-DCC"), 
+       col = 1:4, 
+       lty = 1)
+# Adds a legend to distinguish between the EWMA and DCC-based variances for both assets.
+
+rhoDCC = as.matrix(H_DCC[1,2,] / sqrt(H_DCC[1,1,]*H_DCC[2,2,]))
+# Computes time-varying correlation (ρ_t) from DCC: ρ_t = cov(JPM,MCD)_t / (σ_JPM_t * σ_MCD_t)
+
+dim(rhoDCC)
+# Prints the dimension of the resulting correlation matrix (T×1)
+
+rhoDCC[1:5,]
+# Displays the first five time-varying correlations computed from the H_DCC array.
+
+# same as getting it from 
+rhoDCC_1<-res@mfit$R # returns the correlation matrix
+# Alternative extraction — this is the direct list of correlation matrices produced by the model.
+
+class(rhoDCC_1)
+# Displays the class of the rhoDCC_1 object — typically a list of 2×2 matrices (1 per day).
+
+# Assuming rhoDCC_1 is a list of n x n matrices and there are T matrices
+n <- nrow(rhoDCC_1[[1]])
+# Extracts the number of assets (n) from the first matrix.
+
+T <- length(rhoDCC_1)
+# Extracts the number of time points (T) by checking the number of matrices.
+
+# Convert the list to a tri-dimensional array
+rhoDCC_array <- array(unlist(rhoDCC_1), dim = c(n, n, T)) #  This function flattens (converts multiple elements (which can be other lists, vectors, or matrices) into a single, continuous vector) the list rhoDCC_1 into a single vector
+# Flattens the list of matrices and reshapes into a 3D array with dimensions n×n×T.
+
+dim(rhoDCC_array)
+# Displays the dimensions of the new 3D array of correlation matrices.
+
+rhoDCC_array[2,1,1:5]
+# Shows the off-diagonal (i.e., correlation between asset 1 and asset 2) for the first 5 time points.
+
+# we now plt the correlations from both EWMA and DCC models
+dev.new() # new figure
+# Opens a new graphics window.
+
+par(mar=c(2,4,2,0))
+# Sets the plot margins to a tighter layout: bottom, left, top, right.
+
+matplot(date.ts,cbind(rhoEWMA,rhoDCC),
+        type='l',
+        bty='l',
+        lty=1,
+        col=c("green","blue"),
+        main="EWMA and DCC correlations for JPM and C",
+        ylab="Correlations",
+        las=1
+)
+# Plots the two correlation time series — EWMA (green) and DCC (blue).
+# bty='l' sets box type to 'L', las=1 rotates y-axis labels for readability.
+
+legend("bottomright",
+       legend=c("EWMA","DCC"),
+       lty=1,
+       col=c("green","blue"),
+       bty='n'
+)
+# Adds a legend at the bottom-right without a box frame, labelling the green and blue lines.
+
+# Constant Conditional Correlation Model
+# Constant Conditional Correlation Model
+# We're estimating the Constant Conditional Correlation (CCC) model, which assumes time-varying variances but constant correlations between assets.
+
+xspec <- ugarchspec(mean.model = list(armaOrder = c(0, 0), include.mean = FALSE))
+# Define a univariate GARCH(1,1) specification with no ARMA structure and no mean — this will be used for both assets.
+
+uspec <- multispec(replicate(2, xspec))
+# Creates a multivariate specification by replicating the above GARCH(1,1) spec twice (once per asset).
+
+fits <- multifit(uspec, y) # Fit two univariate GARCH(1, 1) models
+# Fits the univariate GARCH(1,1) model independently to each column (i.e., each asset) in matrix `y` (e.g., JPM and MCD returns).
+
+sigmas <- sigma(fits) # extract sigmas
+# Extracts the conditional standard deviations (volatilities) from the fitted GARCH models — a T×2 matrix.
+
+standardized_returns <- y / sigmas # compute standardized returns
+# Divides each asset's return by its estimated conditional standard deviation to produce standardized residuals (ε_t = y_t / σ_t), which are assumed to be i.i.d. in CCC.
+
+# Compute Constant Conditional Correlation
+corrDCC<- cor(standardized_returns)
+# Computes the unconditional (sample) correlation between the standardized residuals, which under CCC is assumed to be constant over time.
+
+corrDCC
+# Prints the resulting 2×2 correlation matrix estimated from the standardized residuals.
+
+
