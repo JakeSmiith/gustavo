@@ -1,0 +1,244 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{float}
+
+% Define custom colours
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeborder}{RGB}{200,200,200}
+\definecolor{rkeyword}{RGB}{0,0,180}
+\definecolor{rstring}{RGB}{153,0,0}
+\definecolor{rcomment}{RGB}{0,128,0}
+
+% Configure listings for R syntax highlighting
+\lstset{
+  language=R,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{rkeyword}\bfseries,
+  stringstyle=\color{rstring},
+  commentstyle=\color{rcomment}\itshape,
+  frame=single,
+  rulecolor=\color{codeborder},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+
+% ... all your existing preamble and lstset remains unchanged ...
+
+\begin{document}
+
+\section*{Refinitiv Sign-Up Instructions}
+
+\begin{enumerate}[leftmargin=*, itemsep=0.6em]
+    \item Follow this link to sign up - fill in the required details.
+    \begin{itemize}
+        \item \textbf{Job role category:} \texttt{academia}
+        \item \textbf{Job role:} \texttt{student}
+    \end{itemize}
+    
+    \item Verify by email - this will send off a “\textbf{review request}.” 
+    You should receive a response within the next 24 hours.
+\end{enumerate}
+
+\vspace{1em}
+
+\section*{Navigating \texttt{quantmod} in R}
+
+The following code shows how one can fetch ticker data for a constituent of the S\&P500:
+
+\begin{lstlisting}
+# Clear environment
+rm(list = ls())
+
+# Install required packages if not already installed
+packages <- c("quantmod", "lubridate")
+install.packages(setdiff(packages, rownames(installed.packages())), dependencies = TRUE)
+lapply(packages, library, character.only = TRUE)
+
+# Define the S&P 500 stock ticker (e.g., Apple Inc.)
+ticker <- "AAPL"
+
+# Define the date range: last 1 year from today
+end_date <- Sys.Date()
+start_date <- end_date - lubridate::years(1)
+
+# Retrieve historical stock data from Yahoo Finance
+getSymbols(ticker, src = "yahoo", from = start_date, to = end_date, auto.assign = TRUE)
+
+# View the first few rows of data
+head(get(ticker))
+\end{lstlisting}
+
+\noindent{What if I want to export the data to an Excel document?}
+\begin{lstlisting}
+# Load zoo for time series export support
+if (!requireNamespace("zoo", quietly = TRUE)) install.packages("zoo")
+library(zoo)
+
+# Export the stock data (e.g., AAPL) to CSV
+write.zoo(AAPL, file = "AAPL_1Y_Data.csv", sep = ",")
+\end{lstlisting}
+
+
+\noindent{Here's how you can check your current working directory. You can paste this in file explorer to locate your files. Please note that when setting up R, you will have a choice where the working directory saves. It will automatically save any user-generated files to this location.}
+
+\begin{lstlisting}
+getwd()
+\end{lstlisting}
+
+\newpage
+\section*{Importing Excel data to R & building a dataframe}
+The next section explores the construction of a dataset from an Excel file. Firstly, you want to define your file path: 
+\begin{lstlisting}
+# Install and load required packages
+packages <- c("xts", "readr")
+install.packages(setdiff(packages, rownames(installed.packages())), dependencies = TRUE)
+invisible(lapply(packages, library, character.only = TRUE))
+
+# Define the correct file path (UNC path using forward slashes)
+file_path <- "//ueahome4/stussf1/ype21jyu/data/Documents/gustavo/AAPL_1Y_Data.csv"
+\end{lstlisting}
+\noindent{Please note that your file path is different to the one displayed. To find your file path manually, locate the file, then right click on the file to bring a dropdown menu. From here, click 'properties' to find the path. This can then be pasted in to make it work on your machine.}
+\noindent{Please note, that you do not need to perform these commands if you have already called in the data via quantmod. This method is particularly useful for Kaggle datasets}
+
+\begin{lstlisting}
+# Read the CSV into a data frame
+df <- read_csv(file_path)
+
+# Preview the data frame
+print(head(df))
+
+# Ensure the Date column is properly formatted
+df$Date <- as.Date(df$Date)
+
+# Convert to xts object (remove first column which is Date)
+aapl_xts <- xts(df[, -1], order.by = df$Date)
+
+# Print structure and first few rows
+str(aapl_xts)
+head(aapl_xts)
+\end{lstlisting}
+
+\newpage
+
+\section*{Charting price data}
+\noindent{How do I chart the data I have just imported?}
+\noindent{Please note that this demonstration plots closing prices over 1 year for AAPL ticker. The more tickers one calls in and/or downloads to the Excel file, the longer it takes for the machine to store these observations. In contrast, calling in the values dynamically through quantmod might lead to some initialisation delays. There's a trade-off. }
+\begin{lstlisting}
+# Install and load required packages
+packages <- c("shiny", "plotly", "xts")
+install.packages(setdiff(packages, rownames(installed.packages())), dependencies = TRUE)
+invisible(lapply(packages, library, character.only = TRUE))
+\end{lstlisting}
+
+\noindent{Common Error - Packages aren't installed on to the device:}
+
+\noindent{(Please note that with the following command, you can see all installed packages, which determines whether the packages were installed correctly).}
+\begin{lstlisting}
+installed.packages()[, "Package"]
+\end{lstlisting}
+
+\noindent{After locating the relevant packages, the frontend is written. Please note that some of our examples are done in Shiny, which opens a new tab (a local server) hosting the chart. It's a personal preference whether one wanted to load in Shiny, or in the Plots tab:}
+\begin{lstlisting}
+# ------------------ UI ------------------
+ui <- fluidPage(
+  tags$head(
+    tags$style(HTML("
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .container-fluid {
+        height: 100vh;
+        padding: 0;
+        margin: 0;
+      }
+
+      #plot_ui {
+        height: 100%;
+        padding: 2rem;
+        box-sizing: border-box;
+      }
+
+      h2 {
+        font-weight: 600;
+        text-align: center;
+        margin-bottom: 0.5rem;
+      }
+
+      h4 {
+        text-align: center;
+        font-weight: 400;
+        color: #666;
+        margin-bottom: 2rem;
+      }
+    "))
+  ),
+
+  div(
+    id = "plot_ui",
+    h2("AAPL: Interactive Closing Price Chart"),
+    h4("AAPL: Closing Price (Past 1 Year)"),
+    plotlyOutput("pricePlot", height = "calc(100% - 130px)")
+  )
+)
+\end{lstlisting}
+
+\noindent{After this, the server logic must be implemented:}
+\begin{lstlisting}
+# ------------------ Server ------------------
+server <- function(input, output, session) {
+  data <- reactive({
+    req(exists("AAPL", envir = .GlobalEnv))
+    get("AAPL", envir = .GlobalEnv)
+  })
+
+  output$pricePlot <- renderPlotly({
+    xts_data <- data()
+    req(xts_data)
+
+    dates <- as.Date(index(xts_data))
+    close_prices <- as.numeric(Cl(xts_data))
+
+    plot_ly(
+      x = dates,
+      y = close_prices,
+      type = "scatter",
+      mode = "lines",
+      name = "Close",
+      line = list(color = "#1f77b4", width = 2)
+    ) %>%
+      layout(
+        xaxis = list(title = "Date", type = "date", tickformat = "%b %d, %Y"),
+        yaxis = list(title = "Price (USD)", tickprefix = "$"),
+        hovermode = "x unified",
+        margin = list(t = 50, r = 30, b = 60, l = 60),
+        plot_bgcolor = "#fafafa",
+        paper_bgcolor = "#ffffff"
+      )
+  })
+}
+
+# ------------------ Launch ------------------
+shinyApp(ui, server)
+\end{lstlisting}
+
+\noindent{If the code is copied in correctly, one should see a chart looking similar to this:}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\linewidth]{AAPL_Chart.jpg}
+    \caption{AAPL: Interactive Closing Price Chart (Past 1 Year)}
+    \label{fig:aapl_chart}
+\end{figure}
+
+\end{document}
