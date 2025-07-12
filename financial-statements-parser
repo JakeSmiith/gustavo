@@ -1,5 +1,5 @@
-# Install and load necessary packages
-packages <- c("shiny", "pdftools", "tidyverse", "DT", "stringr")
+# Required packages
+packages <- c("shiny", "pdftools", "tidyverse", "DT", "stringr", "writexl", "tesseract", "magick")
 new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
 if(length(new_packages)) install.packages(new_packages)
 lapply(packages, library, character.only = TRUE)
@@ -8,16 +8,30 @@ lapply(packages, library, character.only = TRUE)
 # UI
 # ---------------------------
 ui <- fluidPage(
-  titlePanel("PDF Financial Statement Parser"),
+  titlePanel("Financial Statement Parser"),
   sidebarLayout(
     sidebarPanel(
       selectInput("statement_type", "Select Statement Type:",
-                  choices = c("Balance Sheet", "Income Statement")),
-      fileInput("pdf_file", "Upload PDF", buttonLabel = "Browse..."),
-      textInput("start_page", "Start Page:", value = "1"),
-      textInput("end_page", "End Page:", value = "1"),
-      actionButton("parse_btn", "Parse PDF")
+                  choices = c("Balance Sheet", "Income Statement", "Automatic (OCR)")),
+      
+      conditionalPanel(
+        condition = "input.statement_type != 'Automatic (OCR)'",
+        fileInput("pdf_file", "Upload PDF", buttonLabel = "Browse..."),
+        textInput("start_page", "Start Page:", value = "1"),
+        textInput("end_page", "End Page:", value = "1"),
+        actionButton("parse_btn", "Parse PDF")
+      ),
+      
+      conditionalPanel(
+        condition = "input.statement_type == 'Automatic (OCR)'",
+        fileInput("image_file", "Upload Screenshot (PNG/JPG)", accept = c("image/png", "image/jpeg")),
+        actionButton("ocr_btn", "Run OCR")
+      ),
+      
+      br(), br(),
+      downloadButton("download_excel", "Download as Excel")
     ),
+    
     mainPanel(
       DTOutput("parsed_lines")
     )
@@ -28,9 +42,75 @@ ui <- fluidPage(
 # SERVER
 # ---------------------------
 server <- function(input, output) {
+  parsed_df <- reactiveVal(NULL)
+
+  fix_tokens <- function(tokens) {
+    if (length(tokens) < 2) return(tokens)
+    new_tokens <- c()
+    i <- 1
+    while (i <= length(tokens)) {
+      if (tokens[i] == "$" && i < length(tokens)) {
+        new_tokens <- c(new_tokens, paste0("$", tokens[i + 1]))
+        i <- i + 2
+      } else {
+        new_tokens <- c(new_tokens, tokens[i])
+        i <- i + 1
+      }
+    }
+    return(new_tokens)
+  }
+
+  # -------------
+  # PARSE OCR TEXT (basic)
+  # -------------
+  parse_ocr_text <- function(text_raw) {
+    lines <- unlist(strsplit(text_raw, "\n"))
+    parsed_rows <- lapply(lines, function(line) {
+      tokens <- str_split(line, "\\s+")[[1]]
+      tokens <- fix_tokens(tokens)
+      nums <- tail(tokens, 2)
+      values <- sapply(nums, function(v) {
+        v <- gsub("[$,]", "", v)
+        if (grepl("^\\(.*\\)$", v)) {
+          v <- paste0("-", gsub("[()]", "", v))
+        }
+        suppressWarnings(as.numeric(v))
+      })
+      if (any(is.na(values))) return(NULL)
+      label <- paste(head(tokens, length(tokens) - 2), collapse = " ")
+      data.frame(`Line Item` = label, V1 = values[1], V2 = values[2], stringsAsFactors = FALSE)
+    })
+    df <- do.call(rbind, parsed_rows)
+    df <- df[complete.cases(df), ]
+    return(df)
+  }
+
+  # -------------
+  # OCR Handler
+  # -------------
+  observeEvent(input$ocr_btn, {
+    req(input$image_file)
+    
+    img <- magick::image_read(input$image_file$datapath)
+    img <- image_convert(img, colorspace = "gray")
+    text_out <- tesseract::ocr(img)
+    
+    df <- parse_ocr_text(text_out)
+    
+    # Dummy year naming
+    colnames(df)[2:3] <- c("Year1", "Year2")
+    parsed_df(df)
+
+    output$parsed_lines <- renderDT({
+      datatable(df, options = list(pageLength = 25), rownames = FALSE)
+    })
+  })
+
+  # ---------------------------
+  # Manual PDF Logic (unchanged)
+  # ---------------------------
   observeEvent(input$parse_btn, {
     req(input$pdf_file)
-
     pdf_pages <- pdf_data(input$pdf_file$datapath)
     all_rows <- list()
 
@@ -38,7 +118,6 @@ server <- function(input, output) {
       df <- pdf_pages[[page_num]]
       df <- df[order(-df$y, df$x), ]
       df$y_group <- cut(df$y, breaks = seq(min(df$y), max(df$y), by = 3), include.lowest = TRUE, labels = FALSE)
-
       grouped <- df %>%
         group_by(y_group) %>%
         summarise(
@@ -47,13 +126,11 @@ server <- function(input, output) {
           x_vals = list(x),
           .groups = "drop"
         )
-
       all_rows[[length(all_rows) + 1]] <- grouped
     }
 
     all_text <- bind_rows(all_rows)
 
-    # Extract years and sort descending
     possible_years <- all_text$row_text[1:6] %>%
       str_extract_all("\\d{4}") %>%
       unlist() %>%
@@ -62,31 +139,10 @@ server <- function(input, output) {
       sort(decreasing = TRUE) %>%
       as.character()
 
-    # Helper: merge "$" with number (e.g., "$ 29,943" → "$29,943")
-    fix_tokens <- function(tokens) {
-      if (length(tokens) < 2) return(tokens)
-      new_tokens <- c()
-      i <- 1
-      while (i <= length(tokens)) {
-        if (tokens[i] == "$" && i < length(tokens)) {
-          new_tokens <- c(new_tokens, paste0("$", tokens[i + 1]))
-          i <- i + 2
-        } else {
-          new_tokens <- c(new_tokens, tokens[i])
-          i <- i + 1
-        }
-      }
-      return(new_tokens)
-    }
-
-    # ---------------------------
-    # Balance Sheet Logic (2 columns)
-    # ---------------------------
     parse_balance_line <- function(line, x_vals) {
       tokens <- str_split(line, "\\s+")[[1]]
       tokens <- fix_tokens(tokens)
       if (length(tokens) < 2) return(NULL)
-
       values <- tail(tokens, 2)
       values_clean <- sapply(values, function(v) {
         v <- gsub("[$,]", "", v)
@@ -95,27 +151,15 @@ server <- function(input, output) {
         }
         suppressWarnings(as.numeric(v))
       })
-
       if (any(is.na(values_clean))) return(NULL)
-
       label <- paste(head(tokens, length(tokens) - 2), collapse = " ")
-
-      return(data.frame(
-        Line.Item = label,
-        V1 = values_clean[1],
-        V2 = values_clean[2],
-        stringsAsFactors = FALSE
-      ))
+      return(data.frame(Line.Item = label, V1 = values_clean[1], V2 = values_clean[2], stringsAsFactors = FALSE))
     }
 
-    # ---------------------------
-    # Income Statement Logic (3 columns)
-    # ---------------------------
     parse_income_line <- function(line) {
       tokens <- str_split(line, "\\s+")[[1]]
       tokens <- fix_tokens(tokens)
       if (length(tokens) < 4) return(NULL)
-
       values <- tail(tokens, 3)
       values_clean <- sapply(values, function(v) {
         v <- gsub("[$,]", "", v)
@@ -124,37 +168,42 @@ server <- function(input, output) {
         }
         suppressWarnings(as.numeric(v))
       })
-
       if (any(is.na(values_clean))) return(NULL)
-
       label <- paste(head(tokens, length(tokens) - 3), collapse = " ")
-
-      return(data.frame(
-        Line.Item = label,
-        V1 = values_clean[1],
-        V2 = values_clean[2],
-        V3 = values_clean[3],
-        stringsAsFactors = FALSE
-      ))
+      return(data.frame(Line.Item = label, V1 = values_clean[1], V2 = values_clean[2], V3 = values_clean[3], stringsAsFactors = FALSE))
     }
 
-    # ---------------------------
-    # Apply Logic Based on Type
-    # ---------------------------
     if (input$statement_type == "Balance Sheet") {
-      parsed_df <- map2_dfr(all_text$row_text, all_text$x_vals, parse_balance_line)
-      parsed_df <- parsed_df[complete.cases(parsed_df), ]
-      colnames(parsed_df)[2:3] <- if (length(possible_years) >= 2) possible_years[1:2] else c("Year1", "Year2")
+      df_final <- map2_dfr(all_text$row_text, all_text$x_vals, parse_balance_line)
+      df_final <- df_final[complete.cases(df_final), ]
+      colnames(df_final)[2:3] <- if (length(possible_years) >= 2) possible_years[1:2] else c("Year1", "Year2")
     } else {
-      parsed_df <- do.call(rbind, lapply(all_text$row_text, parse_income_line))
-      parsed_df <- parsed_df[complete.cases(parsed_df), ]
-      colnames(parsed_df)[2:4] <- if (length(possible_years) >= 3) possible_years[1:3] else c("Year1", "Year2", "Year3")
+      df_final <- do.call(rbind, lapply(all_text$row_text, parse_income_line))
+      df_final <- df_final[complete.cases(df_final), ]
+      colnames(df_final)[2:4] <- if (length(possible_years) >= 3) possible_years[1:3] else c("Year1", "Year2", "Year3")
     }
+
+    parsed_df(df_final)
 
     output$parsed_lines <- renderDT({
-      datatable(parsed_df, options = list(pageLength = 25), rownames = FALSE)
+      datatable(df_final, options = list(pageLength = 25), rownames = FALSE)
     })
   })
+
+  # ---------------------------
+  # Download Handler
+  # ---------------------------
+  output$download_excel <- downloadHandler(
+    filename = function() {
+      paste0("parsed_statement_", Sys.Date(), ".xlsx")
+    },
+    content = function(file) {
+      df <- parsed_df()
+      if (!is.null(df)) {
+        writexl::write_xlsx(df, path = file)
+      }
+    }
+  )
 }
 
 # ---------------------------
