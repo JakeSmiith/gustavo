@@ -241,4 +241,53 @@ shinyApp(ui, server)
     \label{fig:aapl_chart}
 \end{figure}
 
+\section*{Computing volatility}
+
+\noindent{With mere prices, one can calculate the rolling volatility of a stock, which is important to document the risk-adjusted returns of a stock.}
+\noindent{The following code supports a transformation from our AAPL prices to a new dataframe containing 20-day rolling volatility and risk-adjusted returns using the Sharpe ratio.}
+
+\begin{lstlisting}
+# Step 0: Install required packages
+required_packages <- c("TTR", "xts", "dplyr", "zoo")
+new_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
+if (length(new_packages)) install.packages(new_packages)
+
+# Extract adjusted close prices
+adj_prices <- AAPL$AAPL.Adjusted
+date_index <- zoo::index(AAPL)
+
+# Extract adjusted close prices
+adj_prices <- AAPL$AAPL.Adjusted
+date_index <- zoo::index(AAPL)
+
+# Step 3: 20-day rolling volatility
+rolling_vol <- TTR::runSD(log_returns, n = 20)
+
+# Step 4: Risk-adjusted return
+rar_xts <- log_returns / rolling_vol
+rar_xts <- na.omit(rar_xts)
+
+# Step 5: Create metrics dataframe
+metrics_df <- data.frame(
+  Date = zoo::index(rar_xts),
+  RollingVol20 = as.numeric(rolling_vol[zoo::index(rar_xts)]),
+  RiskAdjustedReturn = as.numeric(rar_xts)
+)
+
+# Step 6: Construct df from AAPL if not yet loaded
+df <- data.frame(Date = as.Date(date_index))
+df <- dplyr::left_join(df, metrics_df, by = "Date")
+
+# Step 7: Clean up
+rownames(df) <- as.character(df$Date)
+df$Date <- NULL
+\end{lstlisting}
+
+\noindent{If the code has been carried out correctly, one should get a table similar to this}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\linewidth]{AAPL_modifiedd.jpeg}
+\end{figure}
+
 \end{document}
