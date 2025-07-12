@@ -1,0 +1,163 @@
+# Install and load necessary packages
+packages <- c("shiny", "pdftools", "tidyverse", "DT", "stringr")
+new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+if(length(new_packages)) install.packages(new_packages)
+lapply(packages, library, character.only = TRUE)
+
+# ---------------------------
+# UI
+# ---------------------------
+ui <- fluidPage(
+  titlePanel("PDF Financial Statement Parser"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("statement_type", "Select Statement Type:",
+                  choices = c("Balance Sheet", "Income Statement")),
+      fileInput("pdf_file", "Upload PDF", buttonLabel = "Browse..."),
+      textInput("start_page", "Start Page:", value = "1"),
+      textInput("end_page", "End Page:", value = "1"),
+      actionButton("parse_btn", "Parse PDF")
+    ),
+    mainPanel(
+      DTOutput("parsed_lines")
+    )
+  )
+)
+
+# ---------------------------
+# SERVER
+# ---------------------------
+server <- function(input, output) {
+  observeEvent(input$parse_btn, {
+    req(input$pdf_file)
+
+    pdf_pages <- pdf_data(input$pdf_file$datapath)
+    all_rows <- list()
+
+    for (page_num in as.integer(input$start_page):as.integer(input$end_page)) {
+      df <- pdf_pages[[page_num]]
+      df <- df[order(-df$y, df$x), ]
+      df$y_group <- cut(df$y, breaks = seq(min(df$y), max(df$y), by = 3), include.lowest = TRUE, labels = FALSE)
+
+      grouped <- df %>%
+        group_by(y_group) %>%
+        summarise(
+          row_text = paste(text, collapse = " "),
+          text_raw = list(text),
+          x_vals = list(x),
+          .groups = "drop"
+        )
+
+      all_rows[[length(all_rows) + 1]] <- grouped
+    }
+
+    all_text <- bind_rows(all_rows)
+
+    # Extract years and sort descending
+    possible_years <- all_text$row_text[1:6] %>%
+      str_extract_all("\\d{4}") %>%
+      unlist() %>%
+      as.integer() %>%
+      unique() %>%
+      sort(decreasing = TRUE) %>%
+      as.character()
+
+    # Helper: merge "$" with number (e.g., "$ 29,943" → "$29,943")
+    fix_tokens <- function(tokens) {
+      if (length(tokens) < 2) return(tokens)
+      new_tokens <- c()
+      i <- 1
+      while (i <= length(tokens)) {
+        if (tokens[i] == "$" && i < length(tokens)) {
+          new_tokens <- c(new_tokens, paste0("$", tokens[i + 1]))
+          i <- i + 2
+        } else {
+          new_tokens <- c(new_tokens, tokens[i])
+          i <- i + 1
+        }
+      }
+      return(new_tokens)
+    }
+
+    # ---------------------------
+    # Balance Sheet Logic (2 columns)
+    # ---------------------------
+    parse_balance_line <- function(line, x_vals) {
+      tokens <- str_split(line, "\\s+")[[1]]
+      tokens <- fix_tokens(tokens)
+      if (length(tokens) < 2) return(NULL)
+
+      values <- tail(tokens, 2)
+      values_clean <- sapply(values, function(v) {
+        v <- gsub("[$,]", "", v)
+        if (grepl("^\\(.*\\)$", v)) {
+          v <- paste0("-", gsub("[()]", "", v))
+        }
+        suppressWarnings(as.numeric(v))
+      })
+
+      if (any(is.na(values_clean))) return(NULL)
+
+      label <- paste(head(tokens, length(tokens) - 2), collapse = " ")
+
+      return(data.frame(
+        Line.Item = label,
+        V1 = values_clean[1],
+        V2 = values_clean[2],
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    # ---------------------------
+    # Income Statement Logic (3 columns)
+    # ---------------------------
+    parse_income_line <- function(line) {
+      tokens <- str_split(line, "\\s+")[[1]]
+      tokens <- fix_tokens(tokens)
+      if (length(tokens) < 4) return(NULL)
+
+      values <- tail(tokens, 3)
+      values_clean <- sapply(values, function(v) {
+        v <- gsub("[$,]", "", v)
+        if (grepl("^\\(.*\\)$", v)) {
+          v <- paste0("-", gsub("[()]", "", v))
+        }
+        suppressWarnings(as.numeric(v))
+      })
+
+      if (any(is.na(values_clean))) return(NULL)
+
+      label <- paste(head(tokens, length(tokens) - 3), collapse = " ")
+
+      return(data.frame(
+        Line.Item = label,
+        V1 = values_clean[1],
+        V2 = values_clean[2],
+        V3 = values_clean[3],
+        stringsAsFactors = FALSE
+      ))
+    }
+
+    # ---------------------------
+    # Apply Logic Based on Type
+    # ---------------------------
+    if (input$statement_type == "Balance Sheet") {
+      parsed_df <- map2_dfr(all_text$row_text, all_text$x_vals, parse_balance_line)
+      parsed_df <- parsed_df[complete.cases(parsed_df), ]
+      colnames(parsed_df)[2:3] <- if (length(possible_years) >= 2) possible_years[1:2] else c("Year1", "Year2")
+    } else {
+      parsed_df <- do.call(rbind, lapply(all_text$row_text, parse_income_line))
+      parsed_df <- parsed_df[complete.cases(parsed_df), ]
+      colnames(parsed_df)[2:4] <- if (length(possible_years) >= 3) possible_years[1:3] else c("Year1", "Year2", "Year3")
+    }
+
+    output$parsed_lines <- renderDT({
+      datatable(parsed_df, options = list(pageLength = 25), rownames = FALSE)
+    })
+  })
+}
+
+# ---------------------------
+# RUN APP
+# ---------------------------
+shinyApp(ui, server)
